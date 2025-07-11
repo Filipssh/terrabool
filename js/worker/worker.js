@@ -1,6 +1,7 @@
 import { Terms } from "../data/terms.js";
 import { Gates, negate } from "../data/gates.js";
 import { Dictionary } from "../data/dictionary.js";
+import { Queue } from "../model/Queue.js";
 
 /**
  * Creates the lookup table from dictionary.js
@@ -11,10 +12,7 @@ import { Dictionary } from "../data/dictionary.js";
  */
 const testfunc = ({ varCount, val, count, solutions }) => {
   for (let gate of Gates) {
-    let term = gate.combine(
-      val.map((a) => a[1]),
-      varCount
-    );
+    let term = gate.combine(val, varCount);
     solutions[term] = solutions[term]
       ? [term, Math.min(solutions[term][1], count)]
       : [term, count];
@@ -34,27 +32,31 @@ const testfunc = ({ varCount, val, count, solutions }) => {
  * @param {number} count: the number of terms in the expression
  * @param {string[]} solutions: the array of solutions
  */
-const identity = ({ varCount, term, mask, val, count, solutions }) => {
+const identity = ({ varCount, term, neg_term, mask, val, count, solutions }) => {
   if (count === 1) {
-    if ((val[0][1] | mask) == term) {
-      solutions.push([val[0][0], val[0][2]]);
+    if ((val.mask | mask) == term) {
+      solutions.push([val.symbol, val.wire_lamp]);
     }
   } else {
     for (let gate of Gates) {
-      const t = gate.combine(
-        val.map((a) => a[1]),
-        varCount
-      );
-      if ((t | mask) == term) {
+      const t = gate.combine(val, varCount);
+      const t_m = t | mask;
+      if (t_m == term || t_m == neg_term) {
+        let symbol_string = val.symbol;
+        let current = val.prev;
+        let wire_lamps = new Array(val.depth);
+        let index = val.depth;
+        
+        do {
+          symbol_string = current.symbol + ", " + symbol_string;
+          wire_lamps[--index] = current.wire_lamp;
+          current = current.prev;
+        } while(current != null);
+        
         // valid expression found. add it to solutions
         solutions.push([
-          `${gate.symbol}(${val.map((a) => a[0]).join(", ")})`,
-          val.map((a) => a[2]),
-        ]);
-      } else if ((negate(t, varCount) | mask) == term) {
-        solutions.push([
-          `¬${gate.symbol}(${val.map((a) => a[0]).join(", ")})`,
-          val.map((a) => a[2]),
+          t_m == term ? `${gate.symbol}(${symbol_string})` : `¬${gate.symbol}(${symbol_string})`,
+          wire_lamps,
         ]);
       }
     }
@@ -77,16 +79,33 @@ function makeExpressionsBFS({
   mask,
   callback = identity,
 }) {
+  const neg_term = negate(term ^ mask, varCount) | mask; 
   const legalTerms = Terms[varCount];
   // Initialize the queue with the individual terms.
-  let queue = [...legalTerms].map((v, i) => ({ val: [v], idx: i, count: 1 }));
+  let queue = new Queue();
+  for(let i = 0; i < legalTerms.length; i++) {
+    let v = legalTerms[i];
+    queue.enqueue({
+      val: {
+        symbol: v[0],
+        mask: v[1],
+        wire_lamp: v[2],
+        depth: 1,
+        prev: null
+      },
+      idx: i,
+      count: 1,
+      next: null
+    });
+  }
   let solutions = [];
 
-  while (queue.length > 0) {
-    let { val, idx, count } = queue.shift();
+  while (!queue.empty()) {
+    let { val, idx, count } = queue.dequeue();
 
     callback({
       varCount: varCount,
+      neg_term: neg_term,
       term: term,
       mask: mask,
       val: val,
@@ -96,9 +115,15 @@ function makeExpressionsBFS({
 
     if (count < maxDepth) {
       for (let i = idx + 1; i < legalTerms.length; i++) {
-        let newStr = [...val, legalTerms[i]];
-        // Add the new substring to the end of the queue.
-        queue.push({ val: newStr, idx: i, count: count + 1 });
+        let term = legalTerms[i];
+        let newVal = {
+          symbol: term[0],
+          mask: term[1],
+          wire_lamp: term[2],
+          depth: val.depth + 1,
+          prev: val
+        }
+        queue.enqueue({ val: newVal, idx: i, count: count + 1, next: null });
       }
     }
   }
@@ -126,14 +151,16 @@ onmessage = (e) => {
         // find the two terms of the shortest combined complexity that, when XOR'ed together, give the searched term
         let pair = [],
           min = Infinity;
-        for (let j of maskedDictionary) {
-          const found = maskedDictionary.filter(
-            (a) => a[0] == ((e.data.term ^ j[0]) | e.data.mask)
-          );
-          for (let f of found) {
-            if (f[1] + j[1] < min) {
-              pair = [f[0], j[0]];
-              min = f[1] + j[1];
+        for (let i = 0; i < maskedDictionary.length; i++) {
+          let term0 = maskedDictionary[i];
+          let complementary = (e.data.term ^ term0[0]) | e.data.mask;
+          for(let j = i + 1; j < maskedDictionary.length; j++) {
+            let term1 = maskedDictionary[j];
+            if(term1[0] == complementary) {
+              if (term1[1] + term0[1] < min) {
+                pair = [term1[0], term0[0]];
+                min = term1[1] + term0[1];
+              }
             }
           }
         }

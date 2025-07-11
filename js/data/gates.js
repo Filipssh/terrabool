@@ -3,21 +3,6 @@ export function negate(term,var_count){
     return ~term & ((1 << (2 ** var_count)) - 1);
 }
 
-// Terraria gate logic. 
-function Xor(numbers){
-    let result = 0;
-    for (let i = 0; i < 32; i++) {
-        let bitCount = 0;
-
-        for (const number of numbers) {
-        bitCount += (number >> i) & 1;
-        }
-        if (bitCount == 1)
-            result |= 1 << i;
-    }
-    return result;
-}
-
 export const Gates = [
     // {   
     //     symbol:"⨀",
@@ -25,11 +10,27 @@ export const Gates = [
     // },
     {   
         symbol:"⊕", 
-        combine: (numbers) => Xor(numbers)
+        combine: (numbers) => {
+            let encountered = 0;
+            let over = 0;
+            while(numbers) {
+                over |= numbers.mask & encountered;
+                encountered |= numbers.mask;
+                numbers = numbers.prev;
+            }
+            return ~over & encountered;
+        }
     },
     {   
         symbol:"∧",
-        combine: (numbers) => numbers.reduce((a, b) => a & b)
+        combine: (numbers) => {
+            let result = ~0;
+            while(numbers) {
+                result &= numbers.mask;
+                numbers = numbers.prev;
+            }
+            return result;
+        }
     },
     // {   
     //     symbol:"∨",
