@@ -17,11 +17,13 @@ const m2 = { complexity: 4, rows: [3, 2], transitioned: [0b1010, 0b1100], mask: 
 test("a stored empty list from an older version loads with the results hidden", () => {
   assert.equal(el("result_multi").style.display, "none");
   assert.equal(el("displayed_matrix").innerHTML, "");
+  assert.equal(el("multi_empty").style.display, "", "the first-visit help shows instead");
 });
 
 test("matrices are shown, saved, and the first one has prev disabled", () => {
   reply({ action: "matrices", results: [m1, m2] });
   assert.equal(el("result_multi").style.display, "grid");
+  assert.equal(el("multi_empty").style.display, "none");
   assert.equal(el("result_multi_pos").innerText, "1 / 2");
   assert.match(el("displayed_matrix").innerHTML, /<span>3<\/span>/);
   assert.equal(storage.get("matrices"), JSON.stringify([m1, m2]));
@@ -105,11 +107,11 @@ test("a wired matrix lists its wires, the tile order, each gate's lamp stack and
   assert.match(html, /background: green"><\/span>green: G1 → O1 O2/);
   assert.match(html, /background: yellow"><\/span>yellow: G2 → O2/);
   assert.match(html, /Gates left to right: G2 G1<br>Outputs left to right: O1 O2/);
-  assert.match(html, /O2 mixes gate signals: one diode each/, "O2 is on the green and the yellow wire");
+  assert.match(html, /O2 needs a diode/, "O2 is on the green and the yellow wire");
   assert.match(html, /G1 = ab: green on the gate, lamps bottom to top ab/);
-  // The picture comes before the folded intermediate steps, which hold the matrix.
+  // The picture and its download come before the build details; the matrix is last.
   // O1 is G1 (0110), O2 is G1 xor G2 (0110 ^ 1100): 2-variable tables are 4 characters.
-  assert.match(html, /<\/svg><a class="export" download="TBool_2g_2l_0110-1010.TEditSch" href="data:application\/octet-stream;base64,[\w+/=]+">Export as TEdit schematic<\/a><details class="steps"><summary>Intermediate steps<\/summary><table>/);
+  assert.match(html, /<\/svg><a class="export" download="TBool_2g_2l_0110-1010.TEditSch" href="data:application\/octet-stream;base64,[\w+/=]+">⬇ Download TEdit schematic<\/a>.*Build details.*<h4>Wires<\/h4>.*<h4>Gates &amp; lamps<\/h4>.*<h4>Matrix<\/h4><table>/s);
   // The export holds the picture's tiles. Column 0 is G2 ("a"): top edge, lamp, gate, 5 routing rows, O1.
   const bytes = Buffer.from(html.match(/base64,([\w+/=]+)/)[1], "base64");
   // Red input to the off lamp, the off XOR gate on yellow (to O2, turning right), O1 off on green.

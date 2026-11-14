@@ -95,7 +95,8 @@ function moduleSvg({ wires, gateOrder, outputOrder, stacks, inputs, routes }, ro
   );
   const schematic = btoa(String.fromCharCode(...teditSchematic(name, colours, cells)));
   return `<svg class="module" viewBox="0 0 ${n * size} ${(outY + 1) * size}" width="${n * size}" role="img" aria-label="Module tile layout">${tiles}${lines}${labels}</svg>` +
-    `<a class="export" download="${name}.TEditSch" href="data:application/octet-stream;base64,${schematic}">Export as TEdit schematic</a>`;
+    `<a class="export" download="${name}.TEditSch" href="data:application/octet-stream;base64,${schematic}">⬇ Download TEdit schematic</a>` +
+    `<p class="hint">In TEdit: Schematics → Import, then paste it into your world.</p>`;
 }
 
 
@@ -105,9 +106,9 @@ function moduleSvg({ wires, gateOrder, outputOrder, stacks, inputs, routes }, ro
  * @param {number[]} rows the inverse matrix, for the output states
  */
 function drawing(wiring, rows, name) {
-  if (wiring.status !== "ok") return `<p>This one can't be laid out as a module.</p>`;
+  if (wiring.status !== "ok") return `<p class="notice">This one can't be laid out as a module.</p>`;
   const lamps = /** @type {any} */ (wiring).stacks.reduce((sum, s) => sum + s.lamps.length, 0);
-  return `<p class="cost"><span>${lamps}</span> lamps</p>${moduleSvg(/** @type {any} */ (wiring), rows, name)}`;
+  return `<p class="badges"><span class="badge"><span>${lamps}</span> lamps</span></p>${moduleSvg(/** @type {any} */ (wiring), rows, name)}`;
 }
 
 const escape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -117,6 +118,7 @@ export default class UIStateHandler {
 
   static #error_multi = document.getElementById("error_multi");
   static #result_multi = document.getElementById("result_multi");
+  static #multi_empty = document.getElementById("multi_empty");
 
   static #loader = document.getElementById("loader");
   static #loader_multi = document.getElementById("loader_multi");
@@ -145,8 +147,8 @@ export default class UIStateHandler {
 
   /** @type {(picks: number[]) => void} */
   static #onDraw;
-  /** The pick of each column of a double result. */
-  static #pair = [0, 0];
+  /** The pick of each column of the shown result: one for a single, two for a double. */
+  static #pair = [0];
   /** The term of the shown single results, for their export names: the field may change since. */
   static #singleTerm = "";
 
@@ -172,20 +174,27 @@ export default class UIStateHandler {
     this.#result_multi_next.addEventListener("click", onNext);
     this.#result_multi_wire.addEventListener("click", onTryWiring);
 
-    // A single solution is drawn the first time it is opened. "toggle" doesn't bubble.
-    this.#result.addEventListener(
-      "toggle",
-      function (e) {
-        const details = /** @type {HTMLDetailsElement} */ (e.target);
-        if (details.open && details.id.startsWith("sol_")) UIStateHandler.#draw([Number(details.id.slice(4))]);
-      },
-      true,
-    );
-    // Picking from either column of a double result redraws the pair.
+    // Picking from a column redraws the picked solution (or pair).
     this.#result.addEventListener("change", function (e) {
       const radio = /** @type {HTMLInputElement} */ (e.target);
       UIStateHandler.#pair[radio.name === "col1" ? 1 : 0] = Number(radio.value);
-      UIStateHandler.#draw(UIStateHandler.#pair);
+      UIStateHandler.#draw();
+    });
+
+    // "Try an example" chips fill the form of their tab and start it.
+    document.getElementById("minifier").addEventListener("click", function (e) {
+      const example = /** @type {HTMLElement} */ (e.target).closest?.("[data-example]")?.dataset.example;
+      if (example === undefined) return;
+      const lines = example.split("\n");
+      if (lines.length === 1) {
+        UIStateHandler.#input_term.value = example;
+        UIStateHandler.#textLength(UIStateHandler.#input_term);
+        onSingle();
+      } else {
+        UIStateHandler.#multi_field_group.innerHTML = "";
+        lines.forEach((l) => UIStateHandler.#addField(l));
+        onMulti();
+      }
     });
 
     this.#multi_new_field.addEventListener("input", function () {
@@ -226,25 +235,26 @@ export default class UIStateHandler {
     return input;
   }
 
-  /** Asks for the module of these picks, unless it is already drawn or on its way. */
-  static #draw(picks) {
-    const target = document.getElementById(picks.length === 1 ? `draw_${picks[0]}` : "draw_pair");
-    if (picks.length === 1 && target.innerHTML !== "") return;
-    target.innerHTML = `<div class="loader"></div>`;
-    this.#onDraw(picks.slice());
+  /** Asks for the module of the current picks. */
+  static #draw() {
+    const target = document.getElementById("draw_pair");
+    // The previous drawing stays (dimmed) until the new one comes, so the page height doesn't jump.
+    if (target.innerHTML === "") target.innerHTML = `<div class="loader"></div>`;
+    else target.classList.add("busy");
+    this.#onDraw(this.#pair.slice());
   }
 
   /**
-   * Shows the module of a single or double pick, if those picks are still the shown ones.
+   * Shows the module of the picks, if they are still the picked ones.
    * @param {number[]} picks
    * @param {number[]} rows
    * @param {{status: string}} wiring
    */
   static showDrawing(picks, rows, wiring) {
-    if (picks.length === 1) {
-      document.getElementById(`draw_${picks[0]}`).innerHTML = drawing(wiring, rows, this.#singleTerm);
-    } else if (String(picks) === String(this.#pair)) {
-      document.getElementById("draw_pair").innerHTML = drawing(wiring, rows, this.#singleTerm);
+    if (String(picks) === String(this.#pair)) {
+      const target = document.getElementById("draw_pair");
+      target.classList.remove("busy");
+      target.innerHTML = drawing(wiring, rows, this.#singleTerm);
     }
   }
 
@@ -308,8 +318,10 @@ export default class UIStateHandler {
     this.#multi_abort.style.display = "none";
   }
 
+  /** @param {string} count "wired/invertible/tested" from the transmatrix worker */
   static setMultiProgress(count) {
-    this.#multi_progress.innerText = count;
+    const [wired, invertible, tested] = count.split("/");
+    this.#multi_progress.innerText = `${wired} found · ${invertible} invertible · ${tested} tested`;
   }
 
   static setDownload(encodedUri) {
@@ -318,34 +330,35 @@ export default class UIStateHandler {
     this.#a_download.style.display = "inline-block";
   }
 
-  /** Lists the solutions; each draws its module when opened, the first one right away. */
+  /** Lists the solutions to pick from; the picked one is drawn beside the list. */
   static setResultSingle(terms) {
-    this.#result.innerHTML = `<ol class="solutions">${terms
-      .map((a, i) => `<li><details id="sol_${i}"><summary><code>${escape(a[0])}</code></summary><div class="drawing" id="draw_${i}"></div></details></li>`)
-      .join("")}</ol>`;
-    const first = /** @type {HTMLDetailsElement} */ (document.getElementById("sol_0"));
-    first.open = true;
-    this.#draw([0]);
+    const head = terms.length === 1 ? "One cheapest circuit:" : `${terms.length} equally cheap circuits. Pick one to see it:`;
+    this.#showPicks(head, [terms]);
   }
 
   /** Two columns to pick one gate from each; the pair's module is drawn beside them. */
   static setResultDouble(terms1, terms2) {
+    this.#showPicks("No single gate makes this function. Pick one gate from each column: their outputs share one wire.", [terms1, terms2]);
+  }
+
+  /** One radio list per column, the first of each picked and drawn. */
+  static #showPicks(head, columns) {
     const column = (terms, c) =>
-      `<fieldset><legend>Gate ${c + 1}</legend>${terms
+      `<fieldset><legend>${columns.length === 1 ? "Circuits" : `Gate ${c + 1}`}</legend>${terms
         .map((a, i) => `<label><input type="radio" name="col${c}" value="${i}"${i === 0 ? " checked" : ""}> <code>${escape(a[0])}</code></label>`)
         .join("")}</fieldset>`;
-    this.#result.innerHTML = `<div class="double">
-      <p>No single gate makes this function. Pick one gate from each column: their outputs share one wire.</p>
-      ${column(terms1, 0)}${column(terms2, 1)}<div class="drawing" id="draw_pair"></div></div>`;
-    this.#pair = [0, 0];
-    this.#draw(this.#pair);
+    this.#result.innerHTML = `<p class="result_title">${head}</p><div class="picker cols${columns.length}">` +
+      `<div class="lists">${columns.map(column).join("")}</div><div class="drawing panel" id="draw_pair"></div></div>`;
+    this.#pair = columns.map(() => 0);
+    this.#draw();
   }
 
   static setResultUnexpectedError() {
-    this.#result.innerHTML = `Something went wrong. Please report this as a bug.`;
+    this.#result.innerHTML = `<p class="error">Something went wrong. Please report this as a bug.</p>`;
   }
 
   static setNextPrevState(index, matrices){
+    this.#multi_empty.style.display = matrices == null ? "" : "none";
     if(matrices == null){
       this.#result_multi.style.display = "none";
     }else{
@@ -359,7 +372,7 @@ export default class UIStateHandler {
   /**
    * Shows a matrix's module first; the matrix (row O<p> is output p, column G<k> is gate k,
    * the last column the truth table of gate <row>) and the wire and lamp lists that led to
-   * it are folded away as intermediate steps.
+   * it are build details below it.
    * @param {{complexity: number, rows: number[], transitioned: number[], mask: number,
    *   varCount?: number, wiring?: {status: string,
    *     wires?: {gates: number[], outputs: number[], colour: number}[],
@@ -373,71 +386,74 @@ export default class UIStateHandler {
   static displayMatrix({ complexity, rows, transitioned, mask, varCount, wiring }, allowRetry = true) {
     const n = transitioned.length;
     // Bits print most significant first, so the leftmost column is the last gate.
-    let steps = `<table><tr><th></th>`;
-    for (let k = n; k >= 1; k--) steps += `<th>G${k}</th>`;
-    steps += `<th></th></tr>`;
+    let matrix = `<table><tr><th></th>`;
+    for (let k = n; k >= 1; k--) matrix += `<th>G${k}</th>`;
+    matrix += `<th></th></tr>`;
     const txtMask = mask.toString(2).padStart(16, "0");
     const bits = (v) => v.toString(2).padStart(16, "0").split('').map((a, idx) => (txtMask[idx] === "1" ? "x" : a)).join('');
     for (let i in rows) {
       const num = bits(transitioned[i]);
-      steps += `<tr><th>O${Number(i) + 1}</th><td>${(rows[i] + 2 ** n)
+      matrix += `<tr><th>O${Number(i) + 1}</th><td>${(rows[i] + 2 ** n)
         .toString(2)
         .substring(1)
         .split("")
         .join("</td><td>")}</td>`;
-      steps += `<td>G${Number(i) + 1} = ${num}</td></tr>`;
+      matrix += `<td>G${Number(i) + 1} = ${num}</td></tr>`;
     }
-    steps += `</table>`;
+    matrix += `</table><p class="hint">Row O<i>p</i> marks the gates output <i>p</i> is wired to; the last column is each gate's truth table.</p>`;
+    const section = (title, body) => `<section class="steps"><h4>${title}</h4>${body}</section>`;
 
     // A wiring without lamp stacks is from before input wires were checked: wire it again.
     const status = wiring?.status === "ok" && !wiring.routes ? "unverified" : (wiring?.status ?? "unverified");
+    let badges = `<span class="badge"><span>${complexity}</span> lamps</span>`;
     let shown;
+    let details = "";
     if (status === "ok") {
       const swatch = (c) => `<span class="wire" style="background: ${WIRE_COLOURS[c]}"></span>${WIRE_COLOURS[c]}`;
       const list = (prefix, items) => items.map((i) => `${prefix}${i + 1}`).join(" ");
-      steps += `<ul>${wiring.wires
+      let wires = `<ul>${wiring.wires
         .map((w) => `<li>${swatch(w.colour)}: ${list("G", w.gates)} → ${list("O", w.outputs)}</li>`)
         .join("")}</ul>`;
-      steps += `<p>Gates left to right: ${list("G", wiring.gateOrder)}<br>`;
-      steps += `Outputs left to right: ${list("O", wiring.outputOrder)}</p><ul>`;
+      wires += `<p>Gates left to right: ${list("G", wiring.gateOrder)}<br>`;
+      wires += `Outputs left to right: ${list("O", wiring.outputOrder)}</p>`;
+      let gates = `<ul>`;
       for (let k = 0; k < n; k++) {
         const colours = wiring.wires.filter((w) => w.gates.includes(k)).map((w) => WIRE_COLOURS[w.colour]);
         const { expression, lamps } = wiring.stacks[k];
-        steps += `<li>G${k + 1} = ${expression}: ${colours.join(", ")} on the gate, lamps bottom to top ${lamps.map((l) => l.name).join(" ")}</li>`;
+        gates += `<li>G${k + 1} = ${expression}: ${colours.join(", ")} on the gate, lamps bottom to top ${lamps.map((l) => l.name).join(" ")}</li>`;
       }
-      steps += `</ul>`;
+      gates += `</ul>`;
       // An output on several wires mixes gate signals and needs a diode to merge them.
       const mixed = [...rows.keys()].filter((p) => wiring.wires.filter((w) => w.outputs.includes(p)).length > 1);
-      shown = mixed.length === 0
-        ? `<p>Every output is on one wire: no diodes needed.</p>`
-        : `<p>${list("O", mixed)} mix${mixed.length === 1 ? "es" : ""} gate signals: one diode each.</p>`;
+      badges += `<span class="badge ${mixed.length === 0 ? "good" : "warn"}">${mixed.length === 0
+        ? "no diodes needed"
+        : `${list("O", mixed)} need${mixed.length === 1 ? "s" : ""} a diode`}</span>`;
       // File name: gates, lamps, and the start of each output's truth table (the XOR of the
       // gates its row reaches), so it doesn't depend on the input fields matching.
       const lamps = wiring.stacks.reduce((sum, s) => sum + s.lamps.length, 0);
       // A 2- or 3-variable table is only the last 4 or 8 of the 16 bits.
       const outputs = rows.map((row) => bits(transitioned.reduce((acc, t, k) => ((row >> k) & 1 ? acc ^ t : acc), 0)).slice(-(2 ** varCount)).slice(0, 6));
-      shown += moduleSvg(wiring, rows, `${n}g_${lamps}l_${outputs.join("-")}`);
+      shown = moduleSvg(wiring, rows, `${n}g_${lamps}l_${outputs.join("-")}`);
+      details = section("Wires", wires) + section("Gates &amp; lamps", gates);
     } else if (status === "impossible") {
-      shown = `<p>This matrix can't be wired.</p>`;
+      shown = `<p class="notice">This matrix can't be wired.</p>`;
     } else if (varCount !== undefined) {
-      shown = `<p>Wiring not verified: the search ran out of time.</p>`;
+      shown = `<p class="notice">Wiring not verified: the search ran out of time. <b>Try wiring again</b> searches with no time limit.</p>`;
     } else {
-      shown = `<p>Saved by an older version: search again to see its wiring.</p>`;
+      shown = `<p class="notice">Saved by an older version: search again to see its wiring.</p>`;
     }
     // Only matrices the search gave up on, with what's needed to retry them, can be wired again.
     const canRetry = allowRetry && status === "unverified" && varCount !== undefined;
     this.#result_multi_wire.style.display = canRetry ? "inline-block" : "none";
 
-    this.#displayed_matrix.innerHTML = `<p class="cost"><span>${complexity}</span> lamps</p>${shown}` +
-      `<details class="steps"><summary>Intermediate steps</summary>${steps}</details>`;
+    this.#displayed_matrix.innerHTML = `<p class="badges">${badges}</p>${shown}` +
+      `<h3 class="details_title">Build details</h3>${details}${section("Matrix", matrix)}`;
   }
 
   static #textLength(e) {
     const length = e.value.trim().length;
-    if (length === 4 || length === 8 || length === 16) {
-      e.style.color = "#00C8FF";
-    } else {
-      e.style.color = "black";
-    }
+    // A valid length gets a check mark and a coloured border (style.css).
+    if (length === 4 || length === 8 || length === 16) e.classList.add("valid");
+    else e.classList.remove("valid");
   }
 }

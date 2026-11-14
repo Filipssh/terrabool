@@ -16,11 +16,11 @@ const submit = (value) => {
   return worker.sent[0];
 };
 
-test("input turns blue only at a valid length", () => {
-  for (const [v, color] of [["0110", "#00C8FF"], ["01100110", "#00C8FF"], ["0".repeat(16), "#00C8FF"], ["011", "black"]]) {
+test("input is marked valid only at a valid length", () => {
+  for (const [v, valid] of [["0110", true], ["01100110", true], ["0".repeat(16), true], ["011", false]]) {
     el("term").value = v;
     el("term").fire("input");
-    assert.equal(el("term").style.color, color, v);
+    assert.equal(el("term").classList.contains("valid"), valid, v);
   }
 });
 
@@ -53,37 +53,34 @@ test("bad input shows an error and starts nothing", () => {
 // The search id of the shown results, from the first drawing they asked for.
 let id;
 
-test("single result is listed, the first one drawn, and offered as csv", () => {
+test("single result is a list to pick from, the first one drawn, and offered as csv", () => {
   submit("0110");
   worker.sent.length = 0;
   reply({ action: "result", results: [["ab", 7], ["¬⊕(a, <b)", [2, 5]]] });
   assert.equal(el("loader").style.display, "none");
   const html = el("result").innerHTML;
-  assert.match(html, /<details id="sol_0"><summary><code>ab<\/code>.*id="draw_0"/);
-  assert.match(html, /<code>¬⊕\(a, &lt;b\)<\/code>.*id="draw_1"/, "expressions are escaped");
-  assert.equal(el("sol_0").open, true);
+  assert.match(html, /name="col0" value="0" checked> <code>ab<\/code>.*name="col0" value="1"> <code>¬⊕\(a, &lt;b\)<\/code>.*id="draw_pair"/s, "expressions are escaped");
   id = worker.sent[0].id;
   assert.deepEqual(worker.sent, [{ action: "draw", id, picks: [0], expressions: [["ab", 7]] }]);
-  assert.match(el("draw_0").innerHTML, /loader/);
+  assert.match(el("draw_pair").innerHTML, /loader/);
   assert.equal(el("download").attrs.href, encodeURI('data:text/csv;charset=utf-8,﻿"ab"\n"¬⊕(a, <b)"'));
   assert.equal(el("download").attrs.download, "0110.csv");
   assert.equal(el("download").style.display, "inline-block");
 });
 
-test("opening a solution draws it once; replies for older searches are dropped", () => {
+test("picking a solution draws it; replies for older searches or picks are dropped", () => {
   worker.sent.length = 0;
-  const sol = Object.assign(el("sol_1"), { id: "sol_1", open: true });
-  el("result").fire("toggle", sol);
+  el("result").fire("change", { name: "col0", value: "1" });
   assert.deepEqual(worker.sent, [{ action: "draw", id, picks: [1], expressions: [["¬⊕(a, <b)", [2, 5]]] }]);
-  el("result").fire("toggle", sol); // already on its way: not asked again
-  sol.open = false;
-  el("result").fire("toggle", sol); // closing asks nothing
-  assert.equal(worker.sent.length, 1);
-
   reply({ action: "drawing", id: id - 1, picks: [1], rows: [1], wiring: { status: "impossible" } });
-  assert.match(el("draw_1").innerHTML, /loader/);
+  assert.match(el("draw_pair").innerHTML, /loader/);
+  reply({ action: "drawing", id, picks: [0], rows: [1], wiring: { status: "impossible" } });
+  assert.match(el("draw_pair").innerHTML, /loader/, "the previous pick's reply isn't shown");
   reply({ action: "drawing", id, picks: [1], rows: [1], wiring: { status: "impossible" } });
-  assert.match(el("draw_1").innerHTML, /can't be laid out/);
+  assert.match(el("draw_pair").innerHTML, /can't be laid out/);
+  el("result").fire("change", { name: "col0", value: "0" });
+  assert.match(el("draw_pair").innerHTML, /can't be laid out/, "the old drawing stays while the new one comes");
+  assert.equal(el("draw_pair").classList.contains("busy"), true);
 });
 
 test("a drawn single shows its lamp count and module", () => {
@@ -99,7 +96,7 @@ test("a drawn single shows its lamp count and module", () => {
   };
   el("term").value = "1111"; // edited after the search: the export keeps the searched term
   reply({ action: "drawing", id, picks: [0], rows: [1], wiring });
-  const html = el("draw_0").innerHTML;
+  const html = el("draw_pair").innerHTML;
   assert.match(html, /download="TBool_0110\.TEditSch"/);
   assert.match(html, /<span>1<\/span> lamps/);
   assert.match(html, /<svg class="module" viewBox="0 0 128 448"/);
@@ -109,6 +106,7 @@ test("a drawn single shows its lamp count and module", () => {
 
 test("double result is two columns to pick from, and csv pads the shorter one", () => {
   worker.sent.length = 0;
+  Object.assign(el("draw_pair"), { innerHTML: "" }); // a new result makes a fresh, empty element
   reply({ action: "double", results1: [["a", 2], ["b", 4]], results2: [["c", 8]] });
   const html = el("result").innerHTML;
   assert.match(html, /name="col0" value="0" checked> <code>a<\/code>.*name="col0" value="1"> <code>b<\/code>.*name="col1" value="0" checked> <code>c<\/code>/s);
@@ -131,7 +129,7 @@ test("missing results show the bug message", () => {
   ]) {
     el("result").innerHTML = "";
     reply(data);
-    assert.equal(el("result").innerHTML, bug);
+    assert.equal(el("result").innerHTML, `<p class="error">${bug}</p>`);
   }
 });
 
@@ -142,4 +140,14 @@ test("startTest asks the worker to rebuild the dictionary and logs the result", 
   assert.deepEqual(worker.sent[0], { action: "test", varCount: 2, maxDepth: 3 });
   reply({ action: "test", results: [null, [1, 2]] });
   assert.deepEqual(log.mock.calls[1].arguments[0], [[1, 2]]);
+});
+
+test("an example chip fills the truth table and starts the search", () => {
+  worker.sent.length = 0;
+  el("minifier").fire("click", { closest: () => ({ dataset: { example: "0110" } }) });
+  assert.equal(el("term").value, "0110");
+  assert.equal(el("term").classList.contains("valid"), true);
+  assert.equal(worker.sent[0].action, "search");
+  el("minifier").fire("click", { closest: () => null }); // a click elsewhere does nothing
+  assert.equal(worker.sent.length, 1);
 });

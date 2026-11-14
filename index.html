@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=11">
     <link rel="modulepreload" href="js/worker/worker.js">
     <link rel="modulepreload" href="js/worker/transmatrix.js">
     <title>TerraBool - A Terraria boolean function minifier</title>
@@ -13,60 +13,102 @@
 
 <body>
     <header>
-        <h1>TerraBool</h1>
-        <p role="doc-subtitle">A Terraria boolean function minifier</p>
+        <div class="brand">
+            <h1>TerraBool</h1>
+            <p role="doc-subtitle">Turn a truth table into the smallest Terraria logic-gate module</p>
+        </div>
     </header>
     <main id="minifier">
         <div id="tabbar">
-            <input type="radio" name="tabs" id="btn_single" checked>
-            <label for="btn_single"><span>Single</span></label>
-            <input type="radio" name="tabs" id="btn_multi">
-            <label for="btn_multi"><span>Multi</span></label>
+            <div class="modes">
+                <input type="radio" name="tabs" id="btn_single" checked>
+                <label for="btn_single"><span>Single output</span></label>
+                <input type="radio" name="tabs" id="btn_multi">
+                <label for="btn_multi"><span>Multi output</span></label>
+            </div>
             <input type="radio" name="tabs" id="btn_guide">
-            <label for="btn_guide"><span>How to use</span></label>
+            <label for="btn_guide" class="help_tab" title="How to use">?<span class="help_text"> How to use</span></label>
         </div>
 
         <section id="tab_single" class="tab">
-            <h2>Find a gate from a truth table</h2>
-            <form id="single_form" class="toolbar">
-                <input type="text" id="term" aria-label="Truth table" placeholder="xxx0011011001100"
-                    autocomplete="off" spellcheck="false" autofocus>
-                <button>Start</button>
-                <div id="loader" class="loader" style="display: none;"></div>
-                <a id="download" href="" style="display: none;">download .csv</a>
+            <form id="single_form" class="panel input_panel">
+                <h2>Find a gate from a truth table</h2>
+                <div class="toolbar">
+                    <input type="text" id="term" aria-label="Truth table" placeholder="xxx0011011001100"
+                        autocomplete="off" spellcheck="false" autofocus>
+                    <button class="primary">Start</button>
+                    <div id="loader" class="loader" style="display: none;"></div>
+                    <a id="download" class="small_link" href="" style="display: none;">⬇ all as .csv</a>
+                </div>
+                <p class="hint">The output column of the truth table, bottom row first: 4, 8 or 16 characters of
+                    0, 1, or x for don't care.</p>
             </form>
-            <p class="hint">The output column of the truth table, bottom row first: 4, 8 or 16 characters of
-                0, 1, or x for don't care. <label for="btn_guide" class="link">How to use</label></p>
-            <p id="error" class="error" style="display: none;">Invalid value length</p>
-            <div id="result"></div>
+            <p id="error" class="error" role="alert" style="display: none;">Invalid value length</p>
+            <div id="result">
+                <div class="panel empty">
+                    <div>
+                        <h3>How it works</h3>
+                        <ol class="steps_list">
+                            <li>Type the output column of your truth table, bottom row first.</li>
+                            <li>Press <b>Start</b>: TerraBool lists every cheapest circuit.</li>
+                            <li>Open one to see it tile by tile, then <b>download it as a TEdit schematic</b> and paste
+                                it into your world.</li>
+                        </ol>
+                        <p>Not sure what to type? <button type="button" class="chip" data-example="xxx0011011001100">Try
+                            xxx0011011001100</button> <button type="button" class="chip" data-example="10010110">Try a
+                            3-input XOR</button></p>
+                    </div>
+                    <img src="img/example.gif" alt="ingame example of a module" class="empty_img">
+                </div>
+            </div>
         </section>
 
         <section id="tab_multi" class="tab">
-            <h2>Solve a multi output module</h2>
-            <form id="multi_form" class="flex_column">
+            <form id="multi_form" class="panel input_panel">
+                <h2>Several outputs</h2>
+                <p class="hint">One truth table per output; they share gates. Paste several lines to add them all.</p>
                 <div id="multi_field_group" class="flex_column"></div>
                 <input type="text" id="multi_new_field" aria-label="New output truth table"
-                    placeholder="add an output, or paste several lines" autocomplete="off" spellcheck="false">
-                <div class="toolbar">
-                    <label for="hardlimit">Limit</label>
+                    placeholder="+ add an output" autocomplete="off" spellcheck="false">
+                <details class="advanced">
+                    <summary>Advanced</summary>
+                    <label for="hardlimit">Stop after</label>
                     <input type="number" id="hardlimit" value="20" step="10" min="10">
-                    <button type="submit">Start</button>
+                    <label for="hardlimit">wired modules</label>
+                </details>
+                <div class="toolbar">
+                    <button type="submit" class="primary">Start</button>
                     <div id="multi_compute" class="toolbar" style="display: none;">
                         <div id="loader_multi" class="loader" style="display: none;"></div>
-                        <span id="multi_progress" title="wired / invertible / tested"></span>
+                        <span id="multi_progress"></span>
                         <button id="multi_abort" type="button">Abort</button>
                     </div>
                 </div>
             </form>
-            <p id="error_multi" class="error" style="display: none;">Invalid value length</p>
-            <div id="result_multi">
-                <div class="toolbar">
-                    <button id="result_multi_prev" disabled>‹ prev</button>
-                    <span id="result_multi_pos"></span>
-                    <button id="result_multi_next">next ›</button>
-                    <button id="result_multi_wire" style="display: none;">try wiring</button>
+            <div class="multi_out">
+                <p id="error_multi" class="error" role="alert" style="display: none;">Invalid value length</p>
+                <div id="multi_empty" class="panel empty">
+                    <div>
+                        <h3>Several outputs, one module</h3>
+                        <ol class="steps_list">
+                            <li>Add one truth table per output. All need the same length and the same don't cares.</li>
+                            <li>Press <b>Start</b>: modules come best first (no diodes, then fewest lamps).</li>
+                            <li>Flip through them, <b>download the TEdit schematic</b>, and check the build details
+                                below each picture.</li>
+                        </ol>
+                        <p><button type="button" class="chip" data-example="10010110&#10;11101000">Try a full adder
+                            (sum + carry)</button></p>
+                    </div>
                 </div>
-                <div id="displayed_matrix"></div>
+                <div id="result_multi" class="panel">
+                    <div class="toolbar pager">
+                        <button id="result_multi_prev" disabled>‹ prev</button>
+                        <span id="result_multi_pos"></span>
+                        <button id="result_multi_next">next ›</button>
+                        <button id="result_multi_wire" class="primary" style="display: none;">Try wiring again</button>
+                    </div>
+                    <div id="displayed_matrix"></div>
+                </div>
             </div>
         </section>
 
@@ -102,15 +144,15 @@
 
             <h3>Entering a truth table</h3>
             <p>Type the output column <b>f</b> of the truth table as one string, <b>bottom row first</b>. 2, 3 or 4
-                inputs need 4, 8 or 16 characters; the field turns blue at a valid length. Use <i>0</i>, <i>1</i>,
+                inputs need 4, 8 or 16 characters; the field gets a ✓ at a valid length. Use <i>0</i>, <i>1</i>,
                 or <i>x</i> (any lower case letter) for a don't care. The table here is entered as
                 <i>xxx0011011001100</i>.</p>
 
             <h3>Single: one output</h3>
-            <p>Every cheapest expression is listed. Open one to see its module drawn tile by tile; the first one
-                opens by itself. They all cost the same, so pick whichever fits your build.</p>
+            <p>Every cheapest expression is listed; pick one to see its module drawn tile by tile beside the
+                list. They all cost the same, so pick whichever fits your build.</p>
             <p>Some functions need two gates whose outputs share a wire. These are listed in two columns: pick one
-                from each, and the module for that pair is drawn below.</p>
+                from each, and the module for that pair is drawn beside them.</p>
 
             <h3>Reading an expression</h3>
             <p><b><mark class="gate">⊕</mark>&nbsp;(<mark class="term"><mark
@@ -129,12 +171,12 @@
             <h3>Multi: several outputs sharing gates</h3>
             <p>Add one truth table per output (pasting several lines adds them all). They must have the same length
                 and the same don't cares. Gates are shared between outputs: an output wired to several gates is
-                their XOR. <b>Limit</b> is how many wired modules to find before stopping; the counter shows wired
-                / invertible / tested matrices.</p>
+                their XOR. <b>Advanced → Stop after</b> sets how many wired modules to find; while it runs, the counter shows how
+                many were found, invertible and tested.</p>
             <p>Results come best first: every output on its own wire (no diodes), then one colour per wire, then
-                fewest lamps. Each result shows its module and lamp count; the matrix and the wire and lamp lists
-                that led to it are under <i>Intermediate steps</i>.</p>
-            <p>A result marked <i>Wiring not verified</i> ran out of search time. <b>try wiring</b> searches it
+                fewest lamps. Each result shows its lamp and diode badges, the module and a TEdit download; the wire list, the
+                gates with their lamps and the matrix are under <i>Build details</i>.</p>
+            <p>A result marked <i>Wiring not verified</i> ran out of search time. <b>Try wiring again</b> searches it
                 again with no time limit; <b>Abort</b> stops that.</p>
 
             <h3>Reading a module picture</h3>
