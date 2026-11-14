@@ -8,6 +8,7 @@ UI.init({
   onAbort: abort,
   onNext: next,
   onPrev: prev,
+  onTryWiring: tryWiring,
 });
 
 export function single() {
@@ -50,6 +51,7 @@ export function multi() {
       }
     }
     UI.onStartMultiEvent();
+    pending++;
 
     transmatrix.postMessage({
       action: "generate",
@@ -173,22 +175,35 @@ let index = 0;
 let matrices = JSON.parse(localStorage.getItem("matrices"));
 // Older versions could store an empty list, which has nothing to display.
 if (matrices?.length === 0) matrices = null;
+// Jobs sent to the transmatrix worker and not answered yet. It answers them in order.
+let pending = 0;
+// The matrix a "try wiring" job is for. Its reply carries no identity of its own,
+// and the list may have been replaced by then.
+let wiringTarget = null;
+// A retry is offered only while the worker is idle, so jobs never pile up behind one.
+const show = () => UI.displayMatrix(matrices[index], pending === 0);
 UI.setNextPrevState(index, matrices);
-if (matrices != null) UI.displayMatrix(matrices[index]);
+if (matrices != null) show();
+
+/** Counts a job as answered; hides the loader once the worker is idle. */
+function jobDone() {
+  pending = Math.max(0, pending - 1);
+  if (pending === 0) UI.onMultiResultEvent();
+}
 
 // Multi input worker. Generates transition matrices.
 transmatrix.onmessage = (e) => transmatrix_onmessage(e);
 function transmatrix_onmessage(e) {
   switch (e.data.action) {
     case "matrices":
-      UI.onMultiResultEvent();
+      jobDone();
 
       if (e.data.results?.length > 0) {
         localStorage.setItem("matrices", JSON.stringify(e.data.results));
         matrices = e.data.results;
         index = 0;
         UI.setNextPrevState(index, matrices);
-        UI.displayMatrix(matrices[index]);
+        show();
       } else {
         localStorage.removeItem("matrices");
         matrices = null;
@@ -200,6 +215,18 @@ function transmatrix_onmessage(e) {
     case "count":
       UI.setMultiProgress(e.data.count);
       break;
+    case "wiring": {
+      jobDone();
+      const target = matrices?.indexOf(wiringTarget) ?? -1;
+      wiringTarget = null;
+      if (target < 0) break; // the results it was for are gone
+      matrices[target].wiring = e.data.wiring;
+      if (e.data.complexity !== undefined) matrices[target].complexity = e.data.complexity;
+      localStorage.setItem("matrices", JSON.stringify(matrices));
+      // While a new search runs, its area stays cleared.
+      if (target === index && pending === 0) show();
+      break;
+    }
   }
 }
 
@@ -207,28 +234,30 @@ function next() {
   if (matrices != null && index < matrices.length - 1)
     index++;
   UI.setNextPrevState(index, matrices);
-  UI.displayMatrix(matrices[index]);
+  show();
 }
 
 function prev() {
   if (index > 0) index--;
   UI.setNextPrevState(index, matrices);
-  UI.displayMatrix(matrices[index]);
+  show();
 }
 
-// TODO: wire colouring for displayed matrices. 4x4 or smaller is trivial.
-// The bigger the matrix, the harder to wire outputs.
-// Looking at the transform matrix, the same color can be assigned
-// once in a column(kind of like sudoku).
-// Also, the same color can't be on adjacent columns or rows.
-// Exceptions to the rule are when a group of gates contribute to many outputs.
-//
-// heuristic idea: AND all row pairs to get common bits, count duplicate rows,
-// prioritize groups with most common bits, most duplicates
+// Retries the wiring of the shown matrix with no time limit; Abort stops it.
+function tryWiring() {
+  UI.onStartWiringEvent();
+  pending++;
+  wiringTarget = matrices[index];
+  transmatrix.postMessage({ action: "wire", index: index, matrix: matrices[index] });
+}
 
 export function abort() {
   transmatrix.terminate();
   transmatrix = new Worker("./js/worker/transmatrix.js", { type: "module" });
   transmatrix.onmessage = (e) => transmatrix_onmessage(e);
+  pending = 0;
+  wiringTarget = null;
   UI.onMultiResultEvent();
+  // Brings back the "try wiring" button if a retry was aborted.
+  if (matrices != null) show();
 }

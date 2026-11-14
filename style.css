@@ -227,3 +227,27 @@ form :is(input, button){
     font-size: 1.5em;
     font-weight: bold;
 }
+.wire{
+    display: inline-block;
+    width: 0.8em;
+    height: 0.8em;
+    margin-right: 4px;
+    border: 1px solid #000;
+}
+.module{
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin-top: 8px;
+}
+.module image{
+    image-rendering: pixelated;
+}
+.module text{
+    font: bold 14px sans-serif;
+    text-anchor: middle;
+    fill: #fff;
+    stroke: #000;
+    stroke-width: 3px;
+    paint-order: stroke;
+}

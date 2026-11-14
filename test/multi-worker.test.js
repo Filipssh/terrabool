@@ -5,6 +5,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Dictionary } from "../js/data/dictionary.js";
+import { Terms } from "../js/data/terms.js";
+import { gateLamps, wire } from "../js/worker/wiring.js";
+import { checkLayout, checkRoutes, checkWiring } from "./wiring-check.js";
 
 // transmatrix.js assigns the global `onmessage` and calls `postMessage`, like a Web Worker.
 // Assigned untyped: these are Web Worker globals, not the window ones.
@@ -55,35 +58,86 @@ function goodCombos(terms, mask, n) {
   for (let c = 1; c < 2 ** terms.length; c++) if (minLamps(xorOf(c, terms), mask, n) < Infinity) good.push(c);
   return good;
 }
-/** Brute force: number of valid matrices and the cheapest cost. */
+/**
+ * Each gate's lamps, as the wiring solver gets them.
+ * @returns {{okSets: number, expressions: {expression: string, lamps: {name: string, colours: number}[]}[],
+ *   padded: {expression: string, lamps: {name: string, colours: number}[]}[]}[]}
+ */
+const lampsOf = (transitioned, mask, n) => transitioned.map((term) => gateLamps({ term, mask, varCount: n }));
+
+/**
+ * Brute force: number of invertible matrices, how many of them can be wired, and the
+ * cheapest wireable cost (cheapest gates, no pads). Wireability comes from wire(), which
+ * wiring.test.js checks against its own brute force: plainly, or with pad lamps when every
+ * output is on one wire or (up to 4 outputs) every wire has its own colour.
+ */
 function bruteForce(terms, mask, n) {
-  let count = 0, best = Infinity;
-  for (const pick of subsets(goodCombos(terms, mask, n), terms.length)) {
-    if (rank(pick) !== terms.length) continue;
+  let invertible = 0, count = 0, best = Infinity;
+  const size = terms.length;
+  for (const pick of subsets(goodCombos(terms, mask, n), size)) {
+    if (rank(pick) !== size) continue;
+    invertible++;
+    const transitioned = pick.map((c) => xorOf(c, terms));
+    // Inverse row p: the gates whose combinations XOR to output p alone.
+    const rows = terms.map((_, p) => {
+      for (let i = 1; i < 2 ** size; i++) if (xorOf(i, pick) === 1 << p) return i;
+    });
+    const lamps = lampsOf(transitioned, mask, n);
+    const options = {
+      rows,
+      okSets: lamps.map((l) => l.okSets),
+      expressions: lamps.map((l) => l.expressions),
+      padded: lamps.map((l) => l.padded),
+    };
+    const wireable =
+      wire(options).status === "ok" ||
+      wire({ ...options, cleanOutputs: true, maxPads: size }).status === "ok" ||
+      (size <= 4 && wire({ ...options, distinctOutputs: true, maxPads: size }).status === "ok");
+    if (!wireable) continue;
     count++;
-    best = Math.min(best, pick.reduce((s, c) => s + minLamps(xorOf(c, terms), mask, n), 0));
+    best = Math.min(best, transitioned.reduce((s, t) => s + minLamps(t, mask, n), 0));
   }
-  return { count, best };
+  return { invertible, count, best };
 }
 
-/** Checks one matrix: it rebuilds every output and its cost adds up. */
+/** 2 when every output is on one wire (no diodes), plus 1 when no two wires share a colour. */
+function gradeOf({ wiring, rows }) {
+  const clean = wiring.wires.flatMap((w) => w.outputs).length === rows.length;
+  return 2 * Number(clean) + Number(new Set(wiring.wires.map((w) => w.colour)).size === wiring.wires.length);
+}
+
+/** Checks one matrix: it rebuilds every output, its cost adds up, and its wiring is valid. */
 function checkMatrix(m, terms, mask, n) {
   assert.equal(m.mask, mask);
+  assert.equal(m.varCount, n);
+  const cheapest = m.transitioned.map((t) => minLamps(t, mask, n));
+  if (m.wiring.status === "ok") {
+    const lamps = lampsOf(m.transitioned, mask, n);
+    // A padded gate has an unwired lamp at the bottom, so its tile may carry any colours.
+    const padded = m.wiring.stacks.map((s, k) => s.lamps.length > cheapest[k]);
+    checkWiring(m.rows, lamps.map((l, k) => (padded[k] ? 0xffff : l.okSets)), m.wiring);
+    checkLayout(m.wiring, lamps.map((l) => [...l.expressions, ...l.padded]));
+    checkRoutes(m.wiring, m.wiring.routes);
+    m.wiring.stacks.forEach((s, k) => assert.ok(s.lamps.length <= cheapest[k] + 1, "at most one pad lamp"));
+  } else {
+    assert.deepEqual(m.wiring, { status: "unverified" });
+  }
   assert.equal(m.rows.length, terms.length);
   assert.equal(m.transitioned.length, terms.length);
-  let cost = 0;
-  for (const t of m.transitioned) {
-    const lamps = minLamps(t, mask, n);
-    assert.ok(lamps < Infinity, `gate ${t} is not solvable`);
-    cost += lamps;
-  }
-  assert.equal(m.complexity, cost, "complexity is the sum of the gates' lamp counts");
+  assert.ok(cheapest.every((l) => l < Infinity), "every gate is solvable");
+  // Lamps built: the cheapest gates, plus pad lamps when wired with them.
+  const cost = m.wiring.stacks?.reduce((s, x) => s + x.lamps.length, 0) ?? cheapest.reduce((a, b) => a + b);
+  assert.equal(m.complexity, cost, "complexity is the number of lamps");
   terms.forEach((t, k) => assert.equal(xorOf(m.rows[k], m.transitioned), t, `output ${k} is rebuilt`));
 }
 function checkAll(matrices, terms, mask, n) {
   matrices.forEach((m) => checkMatrix(m, terms, mask, n));
-  for (let i = 1; i < matrices.length; i++)
-    assert.ok(matrices[i - 1].complexity <= matrices[i].complexity, "sorted by complexity");
+  // Wired by grade (no diodes, then one colour per wire), unverified last; then by complexity.
+  const group = (m) => (m.wiring.status !== "ok" ? 4 : 3 - gradeOf(m));
+  for (let i = 1; i < matrices.length; i++) {
+    const [a, b] = [matrices[i - 1], matrices[i]];
+    assert.ok(group(a) < group(b) || (group(a) === group(b) && a.complexity <= b.complexity), "sorted");
+  }
   const keys = matrices.map((m) => JSON.stringify([m.rows, m.transitioned]));
   assert.equal(new Set(keys).size, keys.length, "no duplicates");
 }
@@ -107,18 +161,21 @@ const CASES = [
 
 for (const [name, n, terms, mask] of CASES) {
   test(`${name}: finds every valid matrix and the cheapest one`, () => {
-    const { matrices, counts } = generate({ varCount: n, terms, mask, hardLimit: Infinity });
+    // No wiring budget: random 4-input gates can take more than the page allows.
+    const { matrices, counts } = generate({ varCount: n, terms, mask, hardLimit: Infinity, wiringBudget: Infinity });
     checkAll(matrices, terms, mask, n);
 
     const expected = bruteForce(terms, mask, n);
     assert.ok(expected.count > 0, "the case has a solution");
+    assert.ok(matrices.every((m) => m.wiring.status === "ok"), "with no budget, nothing is unverified");
     assert.equal(matrices.length, expected.count);
-    assert.equal(matrices[0].complexity, expected.best);
+    const cheapest = (m) => m.transitioned.reduce((s, t) => s + minLamps(t, mask, n), 0);
+    assert.equal(Math.min(...matrices.map(cheapest)), expected.best, "the cheapest matrix is found");
 
-    // One progress message per candidate tried, the last one is "found/tried".
+    // One progress message per candidate tried, the last one is "wired/invertible/tried".
     const tried = binom(goodCombos(terms, mask, n).length, terms.length);
     assert.equal(counts.length, tried);
-    assert.equal(counts.at(-1), `${matrices.length}/${tried}`);
+    assert.equal(counts.at(-1), `${matrices.length}/${expected.invertible}/${tried}`);
   });
 }
 
@@ -127,7 +184,7 @@ test("hardLimit stops the search once that many matrices are found", () => {
   const terms = pick4(4, 5, 6, 7);
   const all = bruteForce(terms, 0, 4).count;
   assert.ok(all > 5);
-  const { matrices, counts } = generate({ varCount: 4, terms, mask: 0, hardLimit: 5 });
+  const { matrices, counts } = generate({ varCount: 4, terms, mask: 0, hardLimit: 5, wiringBudget: Infinity });
   assert.equal(matrices.length, 5);
   assert.match(counts.at(-1), /^5\//);
   checkAll(matrices, terms, 0, 4);
@@ -142,9 +199,67 @@ test("mask defaults to none and hardLimit to 20", () => {
 });
 
 test("a single output gives the identity matrix", () => {
-  const [t] = pick4(1);
+  // One lamp: a gate alone in its column can always be fed from the top.
+  const t = Terms[4].find(([name]) => name === "ab")[1];
   const { matrices } = generate({ varCount: 4, terms: [t], mask: 0, hardLimit: 20 });
-  assert.deepEqual(matrices, [{ complexity: minLamps(t, 0, 4), rows: [1], transitioned: [t], mask: 0 }]);
+  assert.equal(matrices.length, 1);
+  const { wiring, ...matrix } = matrices[0];
+  assert.deepEqual(matrix, { complexity: minLamps(t, 0, 4), rows: [1], transitioned: [t], mask: 0, varCount: 4 });
+  assert.equal(wiring.wires.length, 1, "one wire from the gate to the output");
+  checkAll(matrices, [t], 0, 4);
+});
+
+test("a gate whose only lamp uses all four colours is wired with a pad lamp under it", () => {
+  // a⊕b⊕c⊕d is one lamp with every input wire on it; the gate tile below it has no free
+  // colour, unless an unwired "0" lamp sits between them.
+  const abcd = 0b0110100110010110;
+  assert.equal(minLamps(abcd, 0, 4), 1);
+  const { matrices, counts } = generate({ varCount: 4, terms: [abcd], mask: 0, hardLimit: 20 });
+  assert.equal(matrices.length, 1);
+  assert.equal(matrices[0].complexity, 2, "one lamp more than the cheapest gate");
+  assert.deepEqual(matrices[0].wiring.stacks[0].lamps.map((l) => l.name), ["0", "abcd"]);
+  checkAll(matrices, [abcd], 0, 4);
+  assert.equal(counts.at(-1), "1/1/1");
+});
+
+test("unverified matrices are kept after the wired ones", () => {
+  // A small budget wires some matrices and gives up on others.
+  const terms = [0b0110, 0b1100, 0b0001];
+  const { matrices } = generate({ varCount: 2, terms, mask: 0, hardLimit: 5, wiringBudget: 16 });
+  assert.equal(matrices.filter((m) => m.wiring.status === "ok").length, 5);
+  assert.ok(matrices.some((m) => m.wiring.status === "unverified"), "the budget ran out at least once");
+  checkAll(matrices, terms, 0, 2);
+});
+
+test("unverified matrices are capped at hardLimit too", () => {
+  // Budget 1 wires nothing: every one of the > 20 matrices is unverified.
+  const terms = [0b0110, 0b1100, 0b0001];
+  assert.ok(bruteForce(terms, 0, 2).invertible > 20);
+  const { matrices, counts } = generate({ varCount: 2, terms, mask: 0, hardLimit: 5, wiringBudget: 1 });
+  assert.equal(matrices.length, 5);
+  assert.ok(matrices.every((m) => m.wiring.status === "unverified"));
+  assert.match(counts.at(-1), /^0\//, "the search ran to the end without wiring any");
+  checkAll(matrices, terms, 0, 2);
+});
+
+test("the wire action retries one matrix with no budget", () => {
+  const terms = [0b0110, 0b1100, 0b0001];
+  const [m] = generate({ varCount: 2, terms, hardLimit: 1 }).matrices;
+  posted = [];
+  g.onmessage({ data: { action: "wire", index: 7, matrix: { ...m, wiring: { status: "unverified" } } } });
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].action, "wiring");
+  assert.equal(posted[0].index, 7);
+  assert.equal(posted[0].complexity, m.complexity, "lamps built come back with it");
+  checkMatrix({ ...m, wiring: posted[0].wiring }, terms, 0, 2);
+
+  // A gate no single gate makes (only possible from edited storage) comes back impossible.
+  const solvable = new Set(solvable4);
+  let unsolvable = 0;
+  while (solvable.has(unsolvable)) unsolvable++;
+  posted = [];
+  g.onmessage({ data: { action: "wire", index: 0, matrix: { rows: [1], transitioned: [unsolvable], mask: 0, varCount: 4 } } });
+  assert.deepEqual(posted[0], { action: "wiring", index: 0, wiring: { status: "impossible" }, complexity: undefined });
 });
 
 test("outputs with no valid matrix give an empty list", () => {
@@ -168,4 +283,48 @@ test("unknown actions are ignored", () => {
   posted = [];
   g.onmessage({ data: { action: "nope" } });
   assert.deepEqual(posted, []);
+});
+
+test("each matrix gets clean outputs, then one colour per wire, with the fewest pad lamps", () => {
+  // 2 inputs, and 4 inputs with don't cares (a user's case where clean wirings repeat a colour).
+  const cases = [
+    [2, [0b0110, 0b1100, 0b0001], 0, Infinity],
+    [4, [0b0001100000000000, 0b0000011111110000, 0b0000011011001100, 0b0001010110101010], 0b1110000000000000, 20],
+  ];
+  const isClean = (m) => m.wiring.wires.flatMap((w) => w.outputs).length === m.rows.length;
+  const distinct = (m) => new Set(m.wiring.wires.map((w) => w.colour)).size === m.wiring.wires.length;
+  let padded = 0;
+  for (const [n, terms, mask, hardLimit] of cases) {
+    for (const m of generate({ varCount: n, terms, mask, hardLimit, wiringBudget: Infinity }).matrices) {
+      const lamps = lampsOf(m.transitioned, mask, n);
+      const options = {
+        rows: m.rows,
+        okSets: lamps.map((l) => l.okSets),
+        expressions: lamps.map((l) => l.expressions),
+        padded: lamps.map((l) => l.padded),
+        maxPads: m.rows.length,
+      };
+      if (!isClean(m)) assert.notEqual(wire({ ...options, cleanOutputs: true }).status, "ok", "mixed only as a fallback");
+      if (!distinct(m)) {
+        const better = wire({ ...options, cleanOutputs: isClean(m), distinctOutputs: true });
+        assert.notEqual(better.status, "ok", "shared colours only as a fallback");
+      }
+      // Pads cost lamps: the same grade without them would have been used.
+      const extra = m.complexity - m.transitioned.reduce((s, t) => s + minLamps(t, mask, n), 0);
+      if (extra > 0) {
+        padded++;
+        const plain = wire({ ...options, cleanOutputs: isClean(m), distinctOutputs: distinct(m), maxPads: extra - 1 });
+        assert.notEqual(plain.status, "ok", "no more pads than needed");
+      }
+    }
+  }
+  assert.ok(padded > 0, "the 4-input case needs pad lamps for its best grade");
+});
+
+test("more than 4 outputs share colours from the start", () => {
+  // 3 inputs, 5 independent outputs: there are only 4 colours, so outputs must share.
+  const terms = [0b11110000, 0b11001100, 0b10101010, 0b00111100, 0b01011010];
+  const { matrices } = generate({ varCount: 3, terms, mask: 0, hardLimit: 1 });
+  assert.equal(matrices.length, 1);
+  checkAll(matrices, terms, 0, 3);
 });

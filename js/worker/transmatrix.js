@@ -11,6 +11,13 @@ SOLUTION: prune linear combination set (what the getGoodTerms function does) at 
 */
 
 import { Dictionary } from "../data/dictionary.js";
+import { gateLamps, route, wire } from "./wiring.js";
+
+// Search nodes the wiring solver may use per matrix before the matrix is listed as
+// unverified. Tuned on the 7-segment benchmark (implementation-plan.md Appendix B):
+// 6 outputs < 1 s, 7 outputs ~13 s. 200 000 halved the unverified ones at 7 outputs but
+// took ~40 s; they can still be retried one by one with the "wire" action.
+const WIRING_BUDGET = 50000;
 
 /**
  * tests if a number is a power of two
@@ -130,7 +137,64 @@ function getGoodTerms({ varCount, terms, mask = 0 }) {
  * @property {number[]} rows rows of the inverse transition matrix
  * @property {number[]} transitioned the transitioned terms
  * @property {number} mask a mask taking care of don't cares
+ * @property {number} varCount number of variables, needed to wire the matrix again later
+ * @property {Object} wiring the decode wires, see wireMatrix
  */
+
+/**
+ * Finds the decode wires for a matrix (see wiring.js), the lamp stacks and input wires
+ * above the gates, and a tile layout of the decode wires for drawing.
+ * @param {number[]} rows rows of the inverse transition matrix
+ * @param {number[]} transitioned the gates' truth tables
+ * @param {number} mask don't cares
+ * @param {number} varCount number of variables (2 to 4)
+ * @param {number} budget search nodes before giving up as "unverified"
+ */
+export function wireMatrix(rows, transitioned, mask, varCount, budget) {
+  const lamps = transitioned.map((term) => gateLamps({ term, mask, varCount }));
+  const options = {
+    rows,
+    okSets: lamps.map((l) => l.okSets),
+    expressions: lamps.map((l) => l.expressions),
+    padded: lamps.map((l) => l.padded),
+    budget,
+  };
+  // Most wanted first: every output on one wire (no diode merging gate signals), then one
+  // colour per wire (up to 4 outputs only). For those, gates may take a pad lamp (one more
+  // lamp) to free their tile's colours. The last try, plain, decides between "impossible"
+  // and "unverified": it is the least strict. Each try gets the full budget.
+  const n = rows.length;
+  const tries = [
+    { cleanOutputs: true, distinctOutputs: true, maxPads: n },
+    { cleanOutputs: true, maxPads: n },
+    { distinctOutputs: true, maxPads: n },
+    {},
+  ];
+  let result;
+  for (const t of tries.filter((t) => !t.distinctOutputs || rows.length <= 4))
+    if ((result = wire({ ...options, ...t })).status === "ok") break;
+  return result.status === "ok" ? { ...result, routes: route(result) } : result;
+}
+
+/**
+ * Lamps a wiring builds, pad lamps included; undefined when it has no stacks (not wired).
+ * @param {{stacks?: {lamps: unknown[]}[]}} wiring
+ */
+function lampsOf(wiring) {
+  return wiring.stacks?.reduce((sum, s) => sum + s.lamps.length, 0);
+}
+
+/**
+ * How good a wiring is: 2 when every output is on one wire (no diode merging gate
+ * signals), plus 1 when no two wires share a colour.
+ * @param {{wires: {outputs: number[], colour: number}[]}} wiring an "ok" wiring
+ * @param {number} outputs number of outputs
+ */
+export function grade({ wires }, outputs) {
+  const clean = wires.flatMap((w) => w.outputs).length === outputs;
+  const distinct = new Set(wires.map((w) => w.colour)).size === wires.length;
+  return 2 * Number(clean) + Number(distinct);
+}
 
 /**
  * Generates all transition matrices for a given set of terms
@@ -138,10 +202,12 @@ function getGoodTerms({ varCount, terms, mask = 0 }) {
  * @param {number} options.varCount number of variables (2 to 4)
  * @param {number[]} options.terms
  * @param {number} [options.mask]
- * @param {number} [options.hardLimit] stop after this many matrices
- * @returns {Matrix[]} Transition matrices, sorted by complexity
+ * @param {number} [options.hardLimit] stop after this many wired matrices
+ * @param {number} [options.wiringBudget] wiring search nodes per matrix
+ * @returns {Matrix[]} Transition matrices: wired ones best grade first, then unverified ones,
+ *   each by complexity (lamps built, pads included)
  */
-function combinations({ varCount, terms, mask = 0, hardLimit = 20 }) {
+function combinations({ varCount, terms, mask = 0, hardLimit = 20, wiringBudget = WIRING_BUDGET }) {
   const { linearCombinations, goodTermsMap } = getGoodTerms({
     varCount: varCount,
     terms: terms,
@@ -153,7 +219,14 @@ function combinations({ varCount, terms, mask = 0, hardLimit = 20 }) {
   const dim = linearCombinations.length;
   let idx = 0;
   let BigRes = [];
+  let unverified = [];
+  let invertible = 0;
   let tested = 0;
+  const byComplexity = (a, b) => a.complexity - b.complexity;
+  // Wired matrices first: every output on one wire (no diodes) above one colour per wire,
+  // above lamp count. Then the ones the wiring search gave up on.
+  const byGrade = (a, b) => grade(b.wiring, b.rows.length) - grade(a.wiring, a.rows.length) || byComplexity(a, b);
+  const results = () => [...BigRes.sort(byGrade), ...unverified.sort(byComplexity)];
   while (idx >= 0) {
     if (combination[idx] >= dim) {
       idx--;
@@ -162,33 +235,40 @@ function combinations({ varCount, terms, mask = 0, hardLimit = 20 }) {
 
       // Check the matrix and add it to possible solutions list.
       if (isInvertible(lin_combinations)) {
+        invertible++;
         const transitioned = transition(lin_combinations, terms);
         const lampSum = transitioned.reduce(
           (acc, term) => acc + goodTermsMap.get(term),
           0
         );
         const inverse = getInverseMatrix(lin_combinations);
-
-        BigRes.push({
-          complexity: lampSum,
+        const wiring = wireMatrix(inverse, transitioned, mask, varCount, wiringBudget);
+        const matrix = {
+          complexity: lampsOf(wiring) ?? lampSum,
           rows: inverse,
           transitioned: transitioned,
           mask: mask,
-        });
+          varCount: varCount,
+          wiring: wiring,
+        };
+        // Matrices that can't be wired are dropped; only wired ones count toward the limit.
+        // Unverified ones are capped too, or a long search could outgrow localStorage.
+        if (wiring.status === "ok") BigRes.push(matrix);
+        else if (wiring.status === "unverified" && unverified.length < hardLimit) unverified.push(matrix);
       }
       tested++;
       postMessage({
         action: "count",
-        count: `${BigRes.length}/${tested}`,
+        count: `${BigRes.length}/${invertible}/${tested}`,
       });
-      if (BigRes.length >= hardLimit) return BigRes.sort((a,b) => a.complexity-b.complexity);
+      if (BigRes.length >= hardLimit) return results();
     } else {
       idx++;
       combination[idx] = combination[idx - 1];
     }
     combination[idx]++;
   }
-  return BigRes.sort((a,b) => a.complexity-b.complexity);
+  return results();
 }
 
 /**
@@ -229,11 +309,21 @@ onmessage = (e) => {
         terms: e.data.terms,
         mask: e.data.mask,
         hardLimit: e.data.hardLimit,
+        // Only tests send this; the page uses the default.
+        wiringBudget: e.data.wiringBudget,
       });
       postMessage({
         action: "matrices",
         results: matrices,
       });
+      break;
+    }
+    case "wire": {
+      // Retry one matrix the automatic search gave up on, with no budget.
+      const { rows, transitioned, mask, varCount } = e.data.matrix;
+      const wiring = wireMatrix(rows, transitioned, mask, varCount, Infinity);
+      // Pad lamps can make it cost more than the cheapest gates did.
+      postMessage({ action: "wiring", index: e.data.index, wiring, complexity: lampsOf(wiring) });
       break;
     }
     default:

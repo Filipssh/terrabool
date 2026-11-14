@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test --experimental-test-coverage --test-coverage-include=js/worker/worker.js --test-coverage-include=js/worker/transmatrix.js --test-coverage-include=js/model/Queue.js --test-coverage-include=js/data/gates.js --test-coverage-include=js/data/terms.js --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 \"test/*.test.js\""
+    "test": "node --test --experimental-test-coverage --test-coverage-include=js/worker/worker.js --test-coverage-include=js/worker/expressions.js --test-coverage-include=js/worker/wiring.js --test-coverage-include=js/worker/transmatrix.js --test-coverage-include=js/model/Queue.js --test-coverage-include=js/data/gates.js --test-coverage-include=js/data/terms.js --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 \"test/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^24.19.2"
