@@ -24,6 +24,7 @@ function isPowerOfTwo(x) {
 /**
  * Tests if the matrix is invertible by checking the rows are linearly independent in GF(2).
  * @param {number[]} rows
+ * @param {number} pad
  * @returns {boolean}
  */
 function isInvertible(rows, pad = 2 ** rows.length) {
@@ -32,7 +33,7 @@ function isInvertible(rows, pad = 2 ** rows.length) {
     let term = 0;
     let bitmask = 1;
     for (let j = 0; j < rows.length; j++) {
-      if ((i & bitmask) != 0) term ^= rows[j];
+      if ((i & bitmask) !== 0) term ^= rows[j];
       bitmask <<= 1;
     }
     if (rows.includes(term)) return false;
@@ -42,8 +43,8 @@ function isInvertible(rows, pad = 2 ** rows.length) {
 
 /**
  * Performs a GF(2) transition on a set of terms using a transition matrix.
- * @param {number[]} rows: The rows of the transition matrix
- * @param {number[]} terms: The terms to be transitioned
+ * @param {number[]} rows The rows of the transition matrix
+ * @param {number[]} terms The terms to be transitioned
  * @returns {number[]} Transitioned terms
  */
 function transition(rows, terms) {
@@ -52,7 +53,7 @@ function transition(rows, terms) {
   for (let i = 0; i < terms.length; i++) {
     let bitmask = 1;
     for (let j = 0; j < terms.length; j++) {
-      if ((rows[i] & bitmask) != 0) {
+      if ((rows[i] & bitmask) !== 0) {
         newTerms[i] ^= terms[j];
       }
       bitmask <<= 1;
@@ -71,9 +72,11 @@ function transition(rows, terms) {
  */
 /**
  * Generates all viable linear combinations (encodings) of input terms
- * @param {number[]} terms
- * @param {number} mask
- * @returns {[viableCombinations,TermMap]} Viable linear combinations array, and pruned map of terms.
+ * @param {Object} options
+ * @param {number} options.varCount number of variables (2 to 4)
+ * @param {number[]} options.terms
+ * @param {number} [options.mask]
+ * @returns {{linearCombinations: viableCombinations, goodTermsMap: TermMap}} Viable linear combinations array, and pruned map of terms.
  */
 function getGoodTerms({ varCount, terms, mask = 0 }) {
   const masked_dictionary = Dictionary[varCount - 2].map((a) => [
@@ -89,7 +92,7 @@ function getGoodTerms({ varCount, terms, mask = 0 }) {
 
     for (let term of terms) {
       // Apply the term if the bit in its row is high.
-      if ((combination & bitmask) != 0) {
+      if ((combination & bitmask) !== 0) {
         precursor ^= term;
       }
       bitmask <<= 1;
@@ -98,12 +101,12 @@ function getGoodTerms({ varCount, terms, mask = 0 }) {
     // Get the minimum lamp count of a gate that defines this term.
     const minimum = Math.min(
       ...masked_dictionary
-        .filter((a) => a[0] == (precursor | mask))
+        .filter((a) => a[0] === (precursor | mask))
         .map((a) => a[1])
     );
 
     // If the transitioned term is in the dictionary, add it to the viable combinations.
-    if (minimum != Infinity) {
+    if (minimum !== Infinity) {
       precursorTerms.push({
         precursor: precursor,
         linearCombination: combination,
@@ -121,10 +124,22 @@ function getGoodTerms({ varCount, terms, mask = 0 }) {
 }
 
 /**
+ * A transition matrix found for a set of terms.
+ * @typedef {Object} Matrix
+ * @property {number} complexity total lamp count of the transitioned terms
+ * @property {number[]} rows rows of the inverse transition matrix
+ * @property {number[]} transitioned the transitioned terms
+ * @property {number} mask a mask taking care of don't cares
+ */
+
+/**
  * Generates all transition matrices for a given set of terms
- * @param {number[]} terms
- * @param {number} mask
- * @returns {number[][]} Partially sorted transition matrices
+ * @param {Object} options
+ * @param {number} options.varCount number of variables (2 to 4)
+ * @param {number[]} options.terms
+ * @param {number} [options.mask]
+ * @param {number} [options.hardLimit] stop after this many matrices
+ * @returns {Matrix[]} Transition matrices, sorted by complexity
  */
 function combinations({ varCount, terms, mask = 0, hardLimit = 20 }) {
   const { linearCombinations, goodTermsMap } = getGoodTerms({
@@ -133,7 +148,9 @@ function combinations({ varCount, terms, mask = 0, hardLimit = 20 }) {
     mask: mask,
   });
   let combination = new Array(terms.length).fill(0);
-  const dim = goodTermsMap.size;
+  // Count combinations, not distinct terms: when outputs repeat or depend on each
+  // other, several combinations give the same term and the map holds fewer entries.
+  const dim = linearCombinations.length;
   let idx = 0;
   let BigRes = [];
   let tested = 0;
@@ -189,7 +206,7 @@ function getInverseMatrix(lin_combinations) {
 
     // Apply transition.
     for (const combination of lin_combinations) {
-      if ((i & bitmask) != 0) term ^= combination;
+      if ((i & bitmask) !== 0) term ^= combination;
       bitmask <<= 1;
     }
 
@@ -197,7 +214,7 @@ function getInverseMatrix(lin_combinations) {
     if (isPowerOfTwo(term)) {
       inverse[Math.log2(term)] = i;
       found++;
-      if (found == lin_combinations.length) break;
+      if (found === lin_combinations.length) break;
     }
   }
   return inverse;
@@ -205,19 +222,20 @@ function getInverseMatrix(lin_combinations) {
 
 onmessage = (e) => {
   switch (e.data.action) {
-    case "generate":
+    case "generate": {
+      // combinations() already returns the matrices sorted by complexity.
       const matrices = combinations({
         varCount: e.data.varCount,
         terms: e.data.terms,
         mask: e.data.mask,
         hardLimit: e.data.hardLimit,
       });
-      matrices.sort((a, b) => a[0] - b[0]);
       postMessage({
         action: "matrices",
         results: matrices,
       });
       break;
+    }
     default:
       break;
   }

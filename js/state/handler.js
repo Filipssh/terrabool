@@ -10,21 +10,21 @@ export default class UIStateHandler {
   static #a_download = document.getElementById("download");
   static #download_multi = document.getElementById("download_multi");
 
-  static #input_term = document.getElementById("term");
+  static #input_term = /** @type {HTMLInputElement} */ (document.getElementById("term"));
 
   static #multi_progress = document.getElementById("multi_progress");
-  static #input_hardlimit = document.getElementById("hardlimit");
+  static #input_hardlimit = /** @type {HTMLInputElement} */ (document.getElementById("hardlimit"));
   static #multi_compute = document.getElementById("multi_compute");
   static #multi_abort = document.getElementById("multi_abort");
-  static #result_multi_prev = document.getElementById("result_multi_prev");
-  static #result_multi_next = document.getElementById("result_multi_next");
-  static #btn_single = document.getElementById("btn_single");
+  static #result_multi_prev = /** @type {HTMLButtonElement} */ (document.getElementById("result_multi_prev"));
+  static #result_multi_next = /** @type {HTMLButtonElement} */ (document.getElementById("result_multi_next"));
+  static #btn_single = /** @type {HTMLInputElement} */ (document.getElementById("btn_single"));
 
   static #tab_single = document.getElementById("tab_single");
   static #tab_multi = document.getElementById("tab_multi");
 
   static #multi_field_group = document.getElementById("multi_field_group");
-  static #multi_new_field = document.getElementById("multi_new_field");
+  static #multi_new_field = /** @type {HTMLInputElement} */ (document.getElementById("multi_new_field"));
 
   static #single_form = document.getElementById("single_form");
   static #multi_form = document.getElementById("multi_form");
@@ -41,7 +41,7 @@ export default class UIStateHandler {
 
     document.addEventListener("DOMContentLoaded", function () {
       UIStateHandler.#switchTab();
-      if (UIStateHandler.#multi_field_group.children.length == 0) {
+      if (UIStateHandler.#multi_field_group.children.length === 0) {
         UIStateHandler.#multi_field_group.style.display = "none";
       }
     });
@@ -79,7 +79,7 @@ export default class UIStateHandler {
     this.#multi_new_field.addEventListener("paste", function (e) {
       e.preventDefault();
 
-      let paste = (e.clipboardData || window.clipboardData)
+      let paste = e.clipboardData
         .getData("text")
         .split("\n");
       for (let p of paste) {
@@ -94,10 +94,11 @@ export default class UIStateHandler {
     });
 
     this.#multi_field_group.addEventListener("change", function (e) {
-      if (e.target.value == "") {
-        e.target.remove();
+      const input = /** @type {HTMLInputElement} */ (e.target);
+      if (input.value === "") {
+        input.remove();
       }
-      if (UIStateHandler.#multi_field_group.children.length == 0) {
+      if (UIStateHandler.#multi_field_group.children.length === 0) {
         // this.#multi_new_field.focus();
         UIStateHandler.#multi_field_group.style.display = "none";
       }
@@ -130,15 +131,16 @@ export default class UIStateHandler {
     return this.#input_term.value;
   }
 
+  /** @returns {string[]} the value of each output field */
   static getMultiTermsValues() {
-    return Array.from(
-      document.querySelectorAll("#multi_field_group .multi_output"),
-      (a) => a.value
+    const fields = /** @type {NodeListOf<HTMLInputElement>} */ (
+      document.querySelectorAll("#multi_field_group .multi_output")
     );
+    return Array.from(fields, (a) => a.value);
   }
 
   static getMultiLimit() {
-    return this.#input_hardlimit.value;
+    return Number(this.#input_hardlimit.value);
   }
 
   static onStartSingleEvent() {
@@ -200,17 +202,18 @@ export default class UIStateHandler {
       this.#result_multi.style.display = "none";
     }else{
       this.#result_multi.style.display = "block";
-      this.#result_multi_next.disabled = index == matrices.length-1;
-      this.#result_multi_prev.disabled = index == 0;
+      this.#result_multi_next.disabled = index === matrices.length-1;
+      this.#result_multi_prev.disabled = index === 0;
     }
   }
 
+  /** @param {{complexity: number, rows: number[], transitioned: number[], mask: number}} matrix */
   static displayMatrix({ complexity, rows, transitioned, mask }) {
     let text = `<table>`;
     for (let i in rows) {
       let num = transitioned[i].toString(2).padStart(16, "0");
       let txtMask = mask.toString(2).padStart(16, "0");
-      num = num.split('').map((a, idx) => (txtMask[idx] == "1" ? "x" : a)).join('');
+      num = num.split('').map((a, idx) => (txtMask[idx] === "1" ? "x" : a)).join('');
       text += `<tr><td>${(rows[i] + 2 ** transitioned.length)
         .toString(2)
         .substring(1)

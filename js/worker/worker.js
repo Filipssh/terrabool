@@ -4,15 +4,36 @@ import { Dictionary } from "../data/dictionary.js";
 import { Queue } from "../model/Queue.js";
 
 /**
- * Creates the lookup table from dictionary.js
- * @param {number} varCount: number of variables (2 to 4)
- * @param {Array.<{string, number}>} val: combinations of [Printable expression, Truth table value]
- * @param {number} count: the number of terms in the expression
- * @param {Array.<{number, number}>} solutions: array of [boolean function, min depth to solve]
+ * One term of an expression being built. Terms are chained through `prev`,
+ * so the last term of an expression links back to the first.
+ * @typedef {Object} TermNode
+ * @property {string} symbol printable term, e.g. "¬ab"
+ * @property {number} mask truth table of the term
+ * @property {number} wire_lamp wire color and lamp state bitmap
+ * @property {number} depth number of terms in the chain up to and including this one
+ * @property {TermNode|null} prev the previous term, or null for the first
+ */
+
+/**
+ * Arguments passed to a makeExpressionsBFS callback.
+ * @typedef {Object} SearchStep
+ * @property {number} varCount number of variables (2 to 4)
+ * @property {number} term the term to be expressed
+ * @property {number} neg_term the negated term, with don't cares set
+ * @property {number} mask a mask taking care of don't cares
+ * @property {TermNode} val the last term of the current expression
+ * @property {number} count the number of terms in the expression
+ * @property {Array} solutions where the callback stores what it finds
+ */
+
+/**
+ * Creates the lookup table from dictionary.js.
+ * Stores [boolean function, min depth to solve] in `solutions`, indexed by the function.
+ * @param {SearchStep} step
  */
 const testfunc = ({ varCount, val, count, solutions }) => {
   for (let gate of Gates) {
-    let term = gate.combine(val, varCount);
+    let term = gate.combine(val);
     solutions[term] = solutions[term]
       ? [term, Math.min(solutions[term][1], count)]
       : [term, count];
@@ -24,29 +45,26 @@ const testfunc = ({ varCount, val, count, solutions }) => {
 };
 
 /**
- * Default validation function. Pushes valid text based expressions to the solutions array.
- * @param {number} varCount: number of variables (2 to 4)
- * @param {number} term: the term to be expressed
- * @param {number} mask: a mask taking care of don't cares
- * @param {Array.<string, number>} val: combinations of [Printable expression, Truth table value]
- * @param {number} count: the number of terms in the expression
- * @param {string[]} solutions: the array of solutions
+ * Default validation function. Pushes valid text based expressions to the solutions array
+ * as [printable expression, wire/lamp bitmap or array of them].
+ * @param {SearchStep} step
  */
-const identity = ({ varCount, term, neg_term, mask, val, count, solutions }) => {
+const identity = ({ term, neg_term, mask, val, count, solutions }) => {
   if (count === 1) {
-    if ((val.mask | mask) == term) {
+    if ((val.mask | mask) === term) {
       solutions.push([val.symbol, val.wire_lamp]);
     }
   } else {
     for (let gate of Gates) {
-      const t = gate.combine(val, varCount);
+      const t = gate.combine(val);
       const t_m = t | mask;
-      if (t_m == term || t_m == neg_term) {
+      if (t_m === term || t_m === neg_term) {
         let symbol_string = val.symbol;
         let current = val.prev;
         let wire_lamps = new Array(val.depth);
         let index = val.depth;
-        
+        wire_lamps[--index] = val.wire_lamp;
+
         do {
           symbol_string = current.symbol + ", " + symbol_string;
           wire_lamps[--index] = current.wire_lamp;
@@ -55,7 +73,7 @@ const identity = ({ varCount, term, neg_term, mask, val, count, solutions }) => 
         
         // valid expression found. add it to solutions
         solutions.push([
-          t_m == term ? `${gate.symbol}(${symbol_string})` : `¬${gate.symbol}(${symbol_string})`,
+          t_m === term ? `${gate.symbol}(${symbol_string})` : `¬${gate.symbol}(${symbol_string})`,
           wire_lamps,
         ]);
       }
@@ -65,12 +83,13 @@ const identity = ({ varCount, term, neg_term, mask, val, count, solutions }) => 
 
 /**
  * Generates all possible expressions for a given term, combinations generated in breadth-first-like order.
- * @param {number} varCount: number of variables (2 to 4)
- * @param {number} maxDepth: maximum depth of the expression. i.e. the maximum number of terms
- * @param {number} term: the term to be expressed
- * @param {number} mask: a mask taking care of don't cares
- * @param {requestCallback} callback: a callback function, which should validate the expression and add it to the solutions array
- * @returns {any[]} Formatted results
+ * @param {Object} options
+ * @param {number} options.varCount number of variables (2 to 4)
+ * @param {number} options.maxDepth maximum depth of the expression. i.e. the maximum number of terms
+ * @param {number} options.term the term to be expressed
+ * @param {number} options.mask a mask taking care of don't cares
+ * @param {function(SearchStep): void} [options.callback] validates the expression and adds it to the solutions array
+ * @returns {any[]|undefined} Formatted results, or undefined if nothing was found
  */
 function makeExpressionsBFS({
   varCount,
@@ -133,13 +152,13 @@ function makeExpressionsBFS({
 
 onmessage = (e) => {
   switch (e.data.action) {
-    case "search":
+    case "search": {
       const maskedDictionary = Dictionary[e.data.varCount - 2].map((a) => [
         a[0] | e.data.mask,
         a[1],
       ]);
 
-      if (maskedDictionary.find((a) => a[0] == e.data.term)) {
+      if (maskedDictionary.find((a) => a[0] === e.data.term)) {
         const results = makeExpressionsBFS({
           varCount: e.data.varCount,
           maxDepth: e.data.maxDepth,
@@ -156,7 +175,7 @@ onmessage = (e) => {
           let complementary = (e.data.term ^ term0[0]) | e.data.mask;
           for(let j = i + 1; j < maskedDictionary.length; j++) {
             let term1 = maskedDictionary[j];
-            if(term1[0] == complementary) {
+            if(term1[0] === complementary) {
               if (term1[1] + term0[1] < min) {
                 pair = [term1[0], term0[0]];
                 min = term1[1] + term0[1];
@@ -185,6 +204,7 @@ onmessage = (e) => {
         });
       }
       break;
+    }
     case "test": {
       const results = makeExpressionsBFS({
         varCount: e.data.varCount,

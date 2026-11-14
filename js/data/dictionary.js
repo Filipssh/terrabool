@@ -1,7 +1,8 @@
 // Lookup list for solvable 2, 3 and 4 variable functions. 16 + 256 + 12960 entries.
-// Represents boolean functions that can be realised with 1 gate in Terraria.
+// Represents boolean functions that can be realized with 1 gate in Terraria.
 // the dictionary gets heavy use, and generating it on the fly is slow.
 // [var count][boolean function, min depth to solve]
+/** @type {[number, number][][]} */
 export const Dictionary = [
   [
     [0, 1],
