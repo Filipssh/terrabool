@@ -152,3 +152,30 @@ test("functions outside the dictionary are split into the cheapest XOR pair", ()
     assert.equal(depth.get(f1) + depth.get(f2), best, "pair is the cheapest");
   }
 });
+
+test("with don't cares, the XOR pair uses the cheapest term among those the mask merges", () => {
+  const mask = 0b1;
+  // Masking merges dictionary entries; keep the cheapest of each.
+  const depth = new Map();
+  for (const [t, d] of Dictionary[2]) {
+    const m = t | mask;
+    if (!depth.has(m) || d < depth.get(m)) depth.set(m, d);
+  }
+  let term = mask;
+  while (depth.has(term)) term = (term + 2) | mask;
+
+  let best = Infinity;
+  for (const [x, dx] of depth) {
+    const y = (term ^ x) | mask;
+    if (depth.has(y)) best = Math.min(best, dx + depth.get(y));
+  }
+
+  const r = send({ action: "search", varCount: 4, maxDepth: 5, term, mask });
+  assert.equal(r.action, "double");
+  const f1 = evalExpr(r.results1[0][0], 4) | mask;
+  const f2 = evalExpr(r.results2[0][0], 4) | mask;
+  r.results1.forEach((res) => checkResult(res, 4, f1, mask));
+  r.results2.forEach((res) => checkResult(res, 4, f2, mask));
+  assert.ok(sameOutsideMask(f1 ^ f2, term, mask, 4), "two gates XOR to the target");
+  assert.equal(depth.get(f1) + depth.get(f2), best, "pair is the cheapest");
+});

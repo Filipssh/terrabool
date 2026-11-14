@@ -3,6 +3,8 @@ export function negate(term,var_count){
     return ~term & ((1 << (2 ** var_count)) - 1);
 }
 
+// combine(terms, node) gives the gate's output for the chain ending at node, and caches it
+// on node. It reads node.prev's cache, so it must already have run on node.prev.
 export const Gates = [
     // {   
     //     symbol:"⨀",
@@ -10,26 +12,28 @@ export const Gates = [
     // },
     {   
         symbol:"⊕", 
-        combine: (numbers) => {
-            let encountered = 0;
-            let over = 0;
-            while(numbers) {
-                over |= numbers.mask & encountered;
-                encountered |= numbers.mask;
-                numbers = numbers.prev;
+        combine: (terms, numbers) => {
+            let mask = terms[numbers.idx][1];
+            if(numbers.prev) {
+                let over = numbers.prev.XOR_CACHE_O | (mask & numbers.prev.XOR_CACHE_E);
+                let encountered = mask | numbers.prev.XOR_CACHE_E;
+                numbers.XOR_CACHE_O = over;
+                numbers.XOR_CACHE_E = encountered;
+                return ~over & encountered;
             }
-            return ~over & encountered;
+            numbers.XOR_CACHE_O = 0;
+            numbers.XOR_CACHE_E = mask;
+            return mask;
         }
     },
     {   
         symbol:"∧",
-        combine: (numbers) => {
-            let result = ~0;
-            while(numbers) {
-                result &= numbers.mask;
-                numbers = numbers.prev;
+        combine: (terms, numbers) => {
+            let mask = terms[numbers.idx][1];
+            if(numbers.prev) {
+                return numbers.AND_CACHE = numbers.prev.AND_CACHE & mask;
             }
-            return result;
+            return numbers.AND_CACHE = mask;
         }
     },
     // {   
