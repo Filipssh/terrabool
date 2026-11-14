@@ -1,5 +1,6 @@
 import { Dictionary } from "../data/dictionary.js";
 import { makeExpressionsBFS, testfunc } from "./expressions.js";
+import { gateOptions, SPACER, wireGates } from "./wiring.js";
 
 onmessage = (e) => {
   switch (e.data.action) {
@@ -60,6 +61,18 @@ onmessage = (e) => {
           results2: results2,
         });
       }
+      break;
+    }
+    case "draw": {
+      // The chosen expression of each gate (one, or one per column of a double result),
+      // all gates on the one output.
+      const rows = [2 ** e.data.expressions.length - 1];
+      const lamps = e.data.expressions.map((x) => gateOptions([x]));
+      let wiring = wireGates(rows, lamps, Infinity);
+      // Lamps in one or two columns rarely let every input wire in from the top; an empty
+      // column beside them lets wires come in from the side.
+      if (wiring.status !== "ok") wiring = wireGates(rows, [...lamps, SPACER], Infinity);
+      postMessage({ action: "drawing", id: e.data.id, picks: e.data.picks, rows, wiring });
       break;
     }
     case "test": {

@@ -3,7 +3,6 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
@@ -15,70 +14,67 @@
 <body>
     <header>
         <h1>TerraBool</h1>
-        <h2 role="doc-subtitle">A Terraria boolean function minifier</h2>
-        <section>
-            <h2>About</h2>
-            <p>This app is made to exploit how logic gates and wires behave in Terraria. The main property being how
-                signals don't necessarily turn on a device when power is provided, but rather toogle the on/off state.
-                This property can be used to make circuits, that maximizes use of XOR logic, as connecting two wires
-                together is the same as putting them through an XOR gate.</p>
-        </section>
+        <p role="doc-subtitle">A Terraria boolean function minifier</p>
     </header>
-    <main>
-        <section id="minifier">
-            <div id="tabbar">
-                <input type="radio" name="tabs" id="btn_single" style="display: none;" checked>
-                <input type="radio" name="tabs" id="btn_multi" style="display: none;">
-                <label for="btn_single" class="tab_btn"><span>Single</span></label>
-                <label for="btn_multi" class="tab_btn"><span>Multi</span></label>
-            </div>
-            <div class="p10">
-                <div id="tab_single">
-                    <h2>Find function from truth table</h2>
-                    <form id="single_form">
-                        <input type="text" id="term" aria-label="Truth table" placeholder="001100110000xxxx">
-                        <button>Start</button>
-                        <a id="download" href="" style="display: none;">download .csv</a>
-                        <div id="loader" style="display: none;"></div>
-                    </form>
-                    <p id="error" style="display: none;">Invalid value length</p>
-                    <div id="result"></div>
-                </div>
-                <div id="tab_multi">
-                    <h2>Solve a multi output module</h2>
-                    <form id="multi_form">
-                        <div class="flex_column">
-                            <div id="multi_field_group" class="flex_column"></div>
-                            <input type="text" id="multi_new_field" aria-label="New output truth table" placeholder="001100110000xxxx">
-                            <div>
-                                <label for="hardlimit">Limit</label>
-                                <input type="number" id="hardlimit" value="20" step="10" min="10">
-                                <button class="inline" type="submit">Start</button>
-                            </div>
-                        </div>
-                        <div id="multi_compute" class="flex_column" style="display: none;">
-                            <a id="download_multi" href="" style="display: none;">download .csv</a>
-                            <div id="loader_multi" style="display: none;"></div>
-                            <div id="multi_progress"></div>
-                            <button id="multi_abort">Abort</button>
-                        </div>
-                    </form>
-                    <p id="error_multi" style="display: none;">Invalid value length</p>
-                    <div id="result_multi">
-                        <button id="result_multi_prev" disabled>prev</button>
-                        <button id="result_multi_next">next</button>
-                        <div id="displayed_matrix"></div>
-                        <button id="result_multi_wire" style="display: none;">try wiring</button>
+    <main id="minifier">
+        <div id="tabbar">
+            <input type="radio" name="tabs" id="btn_single" checked>
+            <label for="btn_single"><span>Single</span></label>
+            <input type="radio" name="tabs" id="btn_multi">
+            <label for="btn_multi"><span>Multi</span></label>
+            <input type="radio" name="tabs" id="btn_guide">
+            <label for="btn_guide"><span>How to use</span></label>
+        </div>
+
+        <section id="tab_single" class="tab">
+            <h2>Find a gate from a truth table</h2>
+            <form id="single_form" class="toolbar">
+                <input type="text" id="term" aria-label="Truth table" placeholder="xxx0011011001100"
+                    autocomplete="off" spellcheck="false" autofocus>
+                <button>Start</button>
+                <div id="loader" class="loader" style="display: none;"></div>
+                <a id="download" href="" style="display: none;">download .csv</a>
+            </form>
+            <p class="hint">The output column of the truth table, bottom row first: 4, 8 or 16 characters of
+                0, 1, or x for don't care. <label for="btn_guide" class="link">How to use</label></p>
+            <p id="error" class="error" style="display: none;">Invalid value length</p>
+            <div id="result"></div>
+        </section>
+
+        <section id="tab_multi" class="tab">
+            <h2>Solve a multi output module</h2>
+            <form id="multi_form" class="flex_column">
+                <div id="multi_field_group" class="flex_column"></div>
+                <input type="text" id="multi_new_field" aria-label="New output truth table"
+                    placeholder="add an output, or paste several lines" autocomplete="off" spellcheck="false">
+                <div class="toolbar">
+                    <label for="hardlimit">Limit</label>
+                    <input type="number" id="hardlimit" value="20" step="10" min="10">
+                    <button type="submit">Start</button>
+                    <div id="multi_compute" class="toolbar" style="display: none;">
+                        <div id="loader_multi" class="loader" style="display: none;"></div>
+                        <span id="multi_progress" title="wired / invertible / tested"></span>
+                        <button id="multi_abort" type="button">Abort</button>
                     </div>
                 </div>
-
+            </form>
+            <p id="error_multi" class="error" style="display: none;">Invalid value length</p>
+            <div id="result_multi">
+                <div class="toolbar">
+                    <button id="result_multi_prev" disabled>‹ prev</button>
+                    <span id="result_multi_pos"></span>
+                    <button id="result_multi_next">next ›</button>
+                    <button id="result_multi_wire" style="display: none;">try wiring</button>
+                </div>
+                <div id="displayed_matrix"></div>
             </div>
         </section>
-        <section id="example">
-            <h2>How to use the minifier</h2>
+
+        <section id="tab_guide" class="tab">
+            <h2>How to use</h2>
             <div id="table_img">
                 <table>
-                    <tr><th>A</th><th>B</th><th>C</th><th>D</th><th>f(A,B,C,D)</th></tr>
+                    <tr><th>A</th><th>B</th><th>C</th><th>D</th><th>f</th></tr>
                     <tr><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
                     <tr><td>0</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
                     <tr><td>0</td><td>0</td><td>1</td><td>0</td><td>1</td></tr>
@@ -99,46 +95,62 @@
                 <img id="example_img" src="img/example.gif" alt="ingame example of the function">
             </div>
 
+            <h3>Why</h3>
+            <p>Terraria wires don't power a device, they toggle it. Two wires joined together act like an XOR gate
+                for free, so a circuit built around XOR needs far fewer gates and lamps than one built from a
+                textbook formula. TerraBool searches for those circuits.</p>
 
-            <p>Type in the output values for the function as a binary number. The given truth table would be entered as
-                <i>xxx0011011001100</i>. (The x'es are don't cares.)</p>
-            <h3>How to interpret a generated boolean function.</h3>
-            <p>First, you must be familiar with logical operations AND(∧), OR(∨), NOT(¬), XOR(⊕), XNOR(⨀).</p>
-            <p>There are two kinds of XOR used in this app. One is the "parity function" XOR, which will be used without
-                the gate in Terraria, and is implied in the result by writing inputs right after eachother. The other is
-                the "Turns on when exactly one lamp is active" XOR, which means that you have to use that gate in the
-                game, denoted by <b>⊕</b>.</p>
-            <p>Using the function generated from the example table, we get "⊕(¬c,&nbsp;¬ac,&nbsp;¬cd,&nbsp;acd)"</p>
-            <h3>Here's how this function translates into Terraria</h3>
-            <p><b>
-                    <mark class="gate">⊕</mark>&nbsp;(<mark class="term"><mark
-                            class="negation">¬</mark>c</mark>,&nbsp;<mark class="term"><mark
-                            class="negation">¬</mark>ac</mark>,&nbsp;<mark class="term"><mark
-                            class="negation">¬</mark>cd</mark>,&nbsp;<mark class="term">acd</mark>)
-                </b></p>
-            <p>
-                <mark class="gate">The operation symbol shows which logic gate to use ingame. If there is a negation
-                    sign before it, the output needs to be inverted. Example: when the gate is in an "ON" state, a torch
-                    controlled by it should be "OFF"</mark><br>
-                <mark class="term">The terms show which inputs connect to a single logic gate lamp.</mark><br>
-                <mark class="negation">The negation sign in front of a term means that the gate lamp should be in an
-                    "ON" state</mark>
-            </p>
-            <p>
-                Not all functions can be expressed with a single logic gate. In these cases, the app will list functions
-                in two columns. choose one from each column, create the two gates ingame, and combine their outputs with
-                a common wire.
-            </p>
-            <h3>(November 2023 update) This version now lists all equivalent functions!</h3>
-            <p>
-                When making multi-output modules, the first result rarely has no wire routing issues. This is why the
-                app now lists all equivalent functions, so you can choose the one that works best for you.
-            </p>
+            <h3>Entering a truth table</h3>
+            <p>Type the output column <b>f</b> of the truth table as one string, <b>bottom row first</b>. 2, 3 or 4
+                inputs need 4, 8 or 16 characters; the field turns blue at a valid length. Use <i>0</i>, <i>1</i>,
+                or <i>x</i> (any lower case letter) for a don't care. The table here is entered as
+                <i>xxx0011011001100</i>.</p>
+
+            <h3>Single: one output</h3>
+            <p>Every cheapest expression is listed. Open one to see its module drawn tile by tile; the first one
+                opens by itself. They all cost the same, so pick whichever fits your build.</p>
+            <p>Some functions need two gates whose outputs share a wire. These are listed in two columns: pick one
+                from each, and the module for that pair is drawn below.</p>
+
+            <h3>Reading an expression</h3>
+            <p><b><mark class="gate">⊕</mark>&nbsp;(<mark class="term"><mark
+                class="negation">¬</mark>c</mark>,&nbsp;<mark class="term"><mark
+                class="negation">¬</mark>ac</mark>,&nbsp;<mark class="term"><mark
+                class="negation">¬</mark>cd</mark>,&nbsp;<mark class="term">acd</mark>)</b></p>
+            <ul>
+                <li><mark class="gate">The symbol is the gate</mark>: ∧ is an AND gate, ⊕ an XOR gate (on when
+                    exactly one lamp is on). A ¬ before it inverts the output: the output is off while the
+                    gate is on.</li>
+                <li><mark class="term">Each term is one lamp</mark>, wired to the inputs it names. Letters written
+                    together (<i>acd</i>) are wires joined on one lamp, which XORs them.</li>
+                <li><mark class="negation">A ¬ before a term</mark> means that lamp starts on.</li>
+            </ul>
+
+            <h3>Multi: several outputs sharing gates</h3>
+            <p>Add one truth table per output (pasting several lines adds them all). They must have the same length
+                and the same don't cares. Gates are shared between outputs: an output wired to several gates is
+                their XOR. <b>Limit</b> is how many wired modules to find before stopping; the counter shows wired
+                / invertible / tested matrices.</p>
+            <p>Results come best first: every output on its own wire (no diodes), then one colour per wire, then
+                fewest lamps. Each result shows its module and lamp count; the matrix and the wire and lamp lists
+                that led to it are under <i>Intermediate steps</i>.</p>
+            <p>A result marked <i>Wiring not verified</i> ran out of search time. <b>try wiring</b> searches it
+                again with no time limit; <b>Abort</b> stops that.</p>
+
+            <h3>Reading a module picture</h3>
+            <ul>
+                <li>Wire colours are inputs, entering at the top:
+                    <span class="wire" style="background: red"></span>red&nbsp;=&nbsp;a,
+                    <span class="wire" style="background: blue"></span>blue&nbsp;=&nbsp;b,
+                    <span class="wire" style="background: green"></span>green&nbsp;=&nbsp;c,
+                    <span class="wire" style="background: yellow"></span>yellow&nbsp;=&nbsp;d.</li>
+                <li>Lamps stack on their gate (G), the bottom lamp on the gate tile. Outputs (O) sit at the
+                    bottom.</li>
+                <li>Lit tiles show the state with every input off: build them that way.</li>
+                <li>An empty column only carries input wires into lamps from the side.</li>
+            </ul>
         </section>
     </main>
-    <footer>
-
-    </footer>
     <script type="module">
         import {single, multi, startTest} from './js/main.js';
 

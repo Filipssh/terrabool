@@ -9,7 +9,13 @@ UI.init({
   onNext: next,
   onPrev: prev,
   onTryWiring: tryWiring,
+  onDraw: draw,
 });
+
+// The shown single results: one list, or one per column of a double result.
+let singleResults = [];
+// Counts searches, so a drawing asked for by older results is dropped.
+let search = 0;
 
 export function single() {
   const term = UI.getSingleTermValue();
@@ -20,6 +26,8 @@ export function single() {
     const mask = parseMask(term);
 
     UI.onStartSingleEvent();
+    search++;
+    singleResults = [];
 
     worker.postMessage({
       action: "search",
@@ -130,6 +138,7 @@ worker.onmessage = (e) => {
           e.data.results.map((a) => `"${a[0]}"`).join("\n");
         UI.setDownload(encodeURI(csvContent));
 
+        singleResults = [e.data.results];
         UI.setResultSingle(e.data.results);
       } else {
         UI.setResultUnexpectedError();
@@ -156,10 +165,15 @@ worker.onmessage = (e) => {
         UI.setDownload(encodeURI(csvContent));
 
         // Display results.
+        singleResults = [e.data.results1, e.data.results2];
         UI.setResultDouble(e.data.results1, e.data.results2);
       } else {
         UI.setResultUnexpectedError();
       }
+      break;
+
+    case "drawing":
+      if (e.data.id === search) UI.showDrawing(e.data.picks, e.data.rows, e.data.wiring);
       break;
 
     case "test": {
@@ -170,6 +184,15 @@ worker.onmessage = (e) => {
     }
   }
 };
+
+/**
+ * Asks for the module of the picked solutions: one, or one from each column.
+ * @param {number[]} picks
+ */
+function draw(picks) {
+  const expressions = picks.map((i, c) => singleResults[c][i]);
+  worker.postMessage({ action: "draw", id: search, picks, expressions });
+}
 
 let index = 0;
 let matrices = JSON.parse(localStorage.getItem("matrices"));

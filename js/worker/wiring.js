@@ -49,7 +49,17 @@ export function gateLamps({ term, mask, varCount }) {
   }
   // Not a single gate (e.g. a matrix from an old or edited localStorage): nothing to try,
   // and an unbounded search depth would never finish.
-  const found = lamps === Infinity ? [] : makeExpressionsBFS({ varCount, maxDepth: lamps, term: target, mask });
+  const result = gateOptions(lamps === Infinity ? [] : makeExpressionsBFS({ varCount, maxDepth: lamps, term: target, mask }));
+  lampCache.set(key, result);
+  return result;
+}
+
+/**
+ * gateLamps' result for a given list of a gate's expressions.
+ * @param {[string, number|number[]][]} found expressions as makeExpressionsBFS returns them
+ * @returns {{okSets: number, expressions: Stack[], padded: Stack[]}}
+ */
+export function gateOptions(found) {
   const expressions = found.map(([expression, bitmaps]) => {
     // A one-lamp expression is just the lamp; otherwise it reads "¬⊕(lamp, lamp, …)".
     const names = Array.isArray(bitmaps) ? expression.replace(/^¬?[⊕∧]\(|\)$/g, "").split(", ") : [expression];
@@ -66,9 +76,45 @@ export function gateLamps({ term, mask, varCount }) {
     const text = expression.includes("(") ? expression.replace("(", `(${pad.name}, `) : `⊕(0, ${expression})`;
     return { expression: text, lamps: [pad, ...lamps] };
   });
-  const result = { okSets, expressions, padded };
-  lampCache.set(key, result);
-  return result;
+  return { okSets, expressions, padded };
+}
+
+/**
+ * A column with no lamps and no gate, for gateOptions lists: input wires can run down it
+ * and into lamps from the side. Its index must be past every gate in the matrix rows.
+ */
+export const SPACER = { okSets: 0xffff, expressions: [{ expression: "", lamps: [] }], padded: [] };
+
+/**
+ * Wires gates with the given lamp options: most wanted first, every output on one wire
+ * (no diode merging gate signals), then one colour per wire (up to 4 outputs only). For
+ * those, gates may take a pad lamp (one more lamp) to free their tile's colours. The last
+ * try, plain, decides between "impossible" and "unverified": it is the least strict. Each
+ * try gets the full budget. An "ok" wiring comes with its routes, for drawing.
+ * @param {number[]} rows rows[p] bit k: gate k reaches output p
+ * @param {{okSets: number, expressions: Stack[], padded: Stack[]}[]} lamps per gate
+ * @param {number} budget search nodes before giving up as "unverified"
+ * @returns {Wiring & {routes?: {rows: number, cells: number[][][]}}}
+ */
+export function wireGates(rows, lamps, budget) {
+  const options = {
+    rows,
+    okSets: lamps.map((l) => l.okSets),
+    expressions: lamps.map((l) => l.expressions),
+    padded: lamps.map((l) => l.padded),
+    budget,
+  };
+  const g = lamps.length;
+  const tries = [
+    { cleanOutputs: true, distinctOutputs: true, maxPads: g },
+    { cleanOutputs: true, maxPads: g },
+    { distinctOutputs: true, maxPads: g },
+    {},
+  ];
+  let result;
+  for (const t of tries.filter((t) => !t.distinctOutputs || rows.length <= 4))
+    if ((result = wire({ ...options, ...t })).status === "ok") break;
+  return result.status === "ok" ? { ...result, routes: route(result) } : result;
 }
 
 /**
@@ -147,6 +193,7 @@ function permutations(items) {
 function stackOrders(expressions, set) {
   const seen = new Map();
   for (const { expression, lamps } of expressions) {
+    if (lamps.length === 0) seen.set("", { expression, lamps }); // SPACER
     lamps.forEach((bottom, i) => {
       if ((bottom.colours & set) !== 0) return;
       for (const rest of permutations(lamps.toSpliced(i, 1))) {
@@ -279,13 +326,15 @@ export function wire({
   budget = Infinity,
   distinctOutputs = false,
   cleanOutputs = false,
-  maxWires = cleanOutputs ? rows.length : 4 * rows.length,
+  maxWires = cleanOutputs ? rows.length : 4 * okSets.length,
 }) {
   const n = rows.length;
+  // Gates, which may outnumber outputs (two gates XORed onto one output).
+  const g = okSets.length;
   const residual = rows.slice();
   /** @type {{gates: number, outputs: number, colour: number}[]} */
   const wires = [];
-  const gateColours = new Array(n).fill(0);
+  const gateColours = new Array(g).fill(0);
   const outputColours = new Array(n).fill(0);
   // Colours are interchangeable only when no gate restricts them; lamps always do.
   const symmetric = !expressions && okSets.every((s) => s === 0xffff);
@@ -298,7 +347,7 @@ export function wire({
   const stackCache = new Map();
   /** Layouts per gate order and gate tile colours: covers often repeat them. */
   const layoutCache = new Map();
-  const noColours = new Array(n).fill(0);
+  const noColours = new Array(g).fill(0);
   // A gate whose tile carries colours no lamp of its own avoids needs a pad lamp.
   const needsPad = (k, set) => ((okSets[k] >> set) & 1) === 0;
   let padLimit = 0;
@@ -318,7 +367,7 @@ export function wire({
       if (spent()) return null;
       const reach = inputPaths(columns, heights, x);
       if (reach === null || dead.has(`${x}:${reach.edge}`)) return null;
-      if (x === n) return reach.paths;
+      if (x === g) return reach.paths;
       const k = gateOrder[x];
       const key = `${k}|${colours[k]}|${pad[k]}`;
       if (!stackCache.has(key)) stackCache.set(key, stackOrders(options(k), colours[k]));
@@ -339,10 +388,27 @@ export function wire({
   // Gate tile colours only rule out bottom lamps, so the layout with no colours (but the
   // same pads) is checked once per gate order: if it fails, every colouring fails; if its
   // bottom lamps happen to avoid the colours, it is a layout for them too.
-  function layoutFor(gateOrder, colours, pad = colours.map((set, k) => needsPad(k, set))) {
+  function layoutFor(gateOrder, colours, pad) {
     const loose = cached(`${gateOrder}|${pad}`, () => stackGates(gateOrder, noColours, pad));
-    if (loose === null || gateOrder.every((k) => (loose.stacks[k].lamps[0].colours & colours[k]) === 0)) return loose;
-    return cached(gateOrder.map((k) => `${k}:${colours[k]}`).join("|"), () => stackGates(gateOrder, colours, pad));
+    if (loose === null || gateOrder.every((k) => ((loose.stacks[k].lamps[0]?.colours ?? 0) & colours[k]) === 0)) return loose;
+    return cached(`${gateOrder.map((k) => `${k}:${colours[k]}`).join("|")}|${pad}`, () => stackGates(gateOrder, colours, pad));
+  }
+  // A pad lamp also lifts a stack, which can let input wires past it. So besides the pads
+  // the colours need, up to padLimit in all may be added, fewest first. Pads only where the
+  // colours need them would make the cover add wires that cancel out, just to earn a pad.
+  function layoutWithPads(gateOrder, colours) {
+    const need = colours.reduce((m, set, k) => m | (needsPad(k, set) ? 1 << k : 0), 0);
+    // Gates with no padded expressions (a SPACER) take no extra pad.
+    const fixed = need | colours.reduce((m, _, k) => m | (padded?.[k]?.length ? 0 : 1 << k), 0);
+    for (let extra = 0; extra <= padLimit - popcount(need); extra++) {
+      for (let more = 0; more < 1 << g; more++) {
+        if (popcount(more) !== extra || (more & fixed) !== 0) continue;
+        const pad = colours.map((_, k) => (((need | more) >> k) & 1) === 1);
+        const found = layoutFor(gateOrder, colours, pad);
+        if (found) return found;
+      }
+    }
+    return null;
   }
   function cached(key, make) {
     if (!layoutCache.has(key)) layoutCache.set(key, make());
@@ -353,7 +419,7 @@ export function wire({
   function placeTiles() {
     const colourOf = wires.map((w) => w.colour);
     const tileWires = (bit, side) => wires.flatMap((w, i) => (((w[side] >> bit) & 1) === 1 ? [i] : []));
-    const gateTiles = Array.from({ length: n }, (_, k) => tileWires(k, "gates"));
+    const gateTiles = Array.from({ length: g }, (_, k) => tileWires(k, "gates"));
     const outputTiles = Array.from({ length: n }, (_, p) => tileWires(p, "outputs"));
     const seq = [];
     const ids = [];
@@ -361,16 +427,16 @@ export function wire({
 
     const place = () => {
       if (spent() || crosses(seq, colourOf)) return false;
-      if (seq.length > 1 && seq.length !== n + 1) {
+      if (seq.length > 1 && seq.length !== g + 1) {
         const [a, b] = seq.slice(-2);
         if (a.some((x) => b.some((y) => x !== y && colourOf[x] === colourOf[y]))) return false;
       }
       // Stack heights decide which lamps the input wires can reach, so check each gate order.
-      if (seq.length === n && expressions && (layout = layoutFor(ids, gateColours)) === null) return false;
-      if (seq.length === 2 * n) return true;
-      const side = seq.length < n ? 0 : 1;
+      if (seq.length === g && expressions && (layout = layoutWithPads(ids, gateColours)) === null) return false;
+      if (seq.length === g + n) return true;
+      const side = seq.length < g ? 0 : 1;
       const tiles = side === 0 ? gateTiles : outputTiles;
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < tiles.length; i++) {
         if (used[side].has(i)) continue;
         used[side].add(i);
         seq.push(tiles[i]);
@@ -383,7 +449,7 @@ export function wire({
       return false;
     };
     if (!place()) return false;
-    order = { gateOrder: ids.slice(0, n), outputOrder: ids.slice(n).reverse() };
+    order = { gateOrder: ids.slice(0, g), outputOrder: ids.slice(g).reverse() };
     return true;
   }
 
@@ -398,7 +464,7 @@ export function wire({
     // Some wire must cover the first 1-cell; wire order doesn't matter, so take it next.
     const g0 = Math.log2(residual[p0] & -residual[p0]);
     const candidates = [];
-    for (let gates = 1; gates < 1 << n; gates++) {
+    for (let gates = 1; gates < 1 << g; gates++) {
       if (((gates >> g0) & 1) === 0) continue;
       for (let outputs = 1; outputs < 1 << n; outputs++) {
         if (((outputs >> p0) & 1) === 0) continue;
@@ -414,7 +480,7 @@ export function wire({
 
     for (const { gates, outputs } of candidates) {
       let taken = 0;
-      for (let k = 0; k < n; k++) if (((gates >> k) & 1) === 1) taken |= gateColours[k];
+      for (let k = 0; k < g; k++) if (((gates >> k) & 1) === 1) taken |= gateColours[k];
       // Every wire reaches an output, so all output colours are every colour in use.
       for (let p = 0; p < n; p++) if (distinctOutputs || ((outputs >> p) & 1) === 1) taken |= outputColours[p];
 
@@ -425,7 +491,7 @@ export function wire({
         // C3, or a pad lamp under the gate when allowed.
         let pads = 0;
         let lampOk = true;
-        for (let k = 0; k < n; k++) {
+        for (let k = 0; k < g; k++) {
           if (!needsPad(k, gateColours[k] | (((gates >> k) & 1) === 1 ? bit : 0))) continue;
           pads++;
           if (!padded?.[k]?.length) lampOk = false;
@@ -434,7 +500,7 @@ export function wire({
 
         const apply = () => {
           for (let p = 0; p < n; p++) if (((outputs >> p) & 1) === 1) residual[p] ^= gates;
-          for (let k = 0; k < n; k++) if (((gates >> k) & 1) === 1) gateColours[k] ^= bit;
+          for (let k = 0; k < g; k++) if (((gates >> k) & 1) === 1) gateColours[k] ^= bit;
           for (let p = 0; p < n; p++) if (((outputs >> p) & 1) === 1) outputColours[p] ^= bit;
         };
         apply();
@@ -452,11 +518,11 @@ export function wire({
   // Gate tile colours only rule out bottom lamps, so when no gate order can be stacked
   // with none yet (for any choice of up to `limit` padded gates), no wiring can be.
   // Cheap next to searching every cover to prove it.
-  const gates = [...rows.keys()];
+  const gates = [...okSets.keys()];
   const orders = permutations(gates);
   const patternOk = new Map();
   const stackable = (limit) => {
-    for (let mask = 0; mask < 1 << n; mask++) {
+    for (let mask = 0; mask < 1 << g; mask++) {
       if (popcount(mask) > limit) continue;
       const pad = gates.map((k) => ((mask >> k) & 1) === 1);
       if (!patternOk.has(mask)) patternOk.set(mask, orders.some((o) => layoutFor(o, noColours, pad) !== null));
@@ -474,7 +540,7 @@ export function wire({
     }
     for (let limit = rank(rows); limit <= maxWires; limit++) {
       if (cover(limit, -1)) {
-        const bits = (x) => [...Array(n).keys()].filter((i) => ((x >> i) & 1) === 1);
+        const bits = (x) => [...Array(Math.max(g, n)).keys()].filter((i) => ((x >> i) & 1) === 1);
         return {
           status: /** @type {"ok"} */ ("ok"),
           wires: wires.map((w) => ({ gates: bits(w.gates), outputs: bits(w.outputs), colour: w.colour })),

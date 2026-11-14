@@ -21,7 +21,8 @@ test("a stored empty list from an older version loads with the results hidden", 
 
 test("matrices are shown, saved, and the first one has prev disabled", () => {
   reply({ action: "matrices", results: [m1, m2] });
-  assert.equal(el("result_multi").style.display, "block");
+  assert.equal(el("result_multi").style.display, "grid");
+  assert.equal(el("result_multi_pos").innerText, "1 / 2");
   assert.match(el("displayed_matrix").innerHTML, /<span>3<\/span>/);
   assert.equal(storage.get("matrices"), JSON.stringify([m1, m2]));
   assert.equal(el("result_multi_prev").disabled, true);
@@ -30,6 +31,7 @@ test("matrices are shown, saved, and the first one has prev disabled", () => {
   el("result_multi_next").fire("click");
   assert.match(el("displayed_matrix").innerHTML, /<span>4<\/span>/);
   assert.equal(el("result_multi_next").disabled, true);
+  assert.equal(el("result_multi_pos").innerText, "2 / 2");
 });
 
 for (const results of [[], undefined]) {
@@ -81,6 +83,8 @@ test("a wired matrix lists its wires, the tile order, each gate's lamp stack and
   assert.match(html, /Gates left to right: G2 G1<br>Outputs left to right: O1 O2/);
   assert.match(html, /O2 mixes gate signals: one diode each/, "O2 is on the green and the yellow wire");
   assert.match(html, /G1 = ab: green on the gate, lamps bottom to top ab/);
+  // The picture comes before the folded intermediate steps, which hold the matrix.
+  assert.match(html, /<\/svg><details class="steps"><summary>Intermediate steps<\/summary><table>/);
   const svg = html.match(/<svg[^>]*>.*<\/svg>/s)?.[0];
   assert.ok(svg, "the module is drawn");
   // Top edge, one lamp row, gate row, 5 routing rows (yellow turns right), output row: 9 rows of 64px.

@@ -20,8 +20,12 @@ export class El {
   };
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
   setAttribute(k, v) { this.attrs[k] = v; }
-  fire(type) {
-    for (const fn of this.listeners[type] ?? []) fn.call(this, { preventDefault() {}, target: this });
+  /**
+   * @param {string} type
+   * @param {any} [target] the event target, this element by default
+   */
+  fire(type, target = this) {
+    for (const fn of this.listeners[type] ?? []) fn.call(this, { preventDefault() {}, target });
   }
 }
 

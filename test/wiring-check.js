@@ -88,7 +88,7 @@ export function checkLayout(wiring, expressions) {
     assert.ok(own, `gate ${k} uses one of its cheapest expressions`);
     assert.equal(names(stack.lamps), names(own.lamps), `gate ${k} stacks exactly its expression's lamps`);
     const set = wires.filter((w) => w.gates.includes(k)).reduce((s, w) => s | (1 << w.colour), 0);
-    assert.equal(stack.lamps[0].colours & set, 0, `gate ${k}: bottom lamp touches a wire on the gate tile`);
+    if (stack.lamps.length > 0) assert.equal(stack.lamps[0].colours & set, 0, `gate ${k}: bottom lamp touches a wire on the gate tile`);
   });
   const columns = gateOrder.map((k) => stacks[k].lamps);
   const top = Math.max(...columns.map((c) => c.length));

@@ -11,7 +11,7 @@ SOLUTION: prune linear combination set (what the getGoodTerms function does) at 
 */
 
 import { Dictionary } from "../data/dictionary.js";
-import { gateLamps, route, wire } from "./wiring.js";
+import { gateLamps, wireGates } from "./wiring.js";
 
 // Search nodes the wiring solver may use per matrix before the matrix is listed as
 // unverified. Tuned on the 7-segment benchmark (implementation-plan.md Appendix B):
@@ -151,34 +151,12 @@ function getGoodTerms({ varCount, terms, mask = 0 }) {
  * @param {number} budget search nodes before giving up as "unverified"
  */
 export function wireMatrix(rows, transitioned, mask, varCount, budget) {
-  const lamps = transitioned.map((term) => gateLamps({ term, mask, varCount }));
-  const options = {
-    rows,
-    okSets: lamps.map((l) => l.okSets),
-    expressions: lamps.map((l) => l.expressions),
-    padded: lamps.map((l) => l.padded),
-    budget,
-  };
-  // Most wanted first: every output on one wire (no diode merging gate signals), then one
-  // colour per wire (up to 4 outputs only). For those, gates may take a pad lamp (one more
-  // lamp) to free their tile's colours. The last try, plain, decides between "impossible"
-  // and "unverified": it is the least strict. Each try gets the full budget.
-  const n = rows.length;
-  const tries = [
-    { cleanOutputs: true, distinctOutputs: true, maxPads: n },
-    { cleanOutputs: true, maxPads: n },
-    { distinctOutputs: true, maxPads: n },
-    {},
-  ];
-  let result;
-  for (const t of tries.filter((t) => !t.distinctOutputs || rows.length <= 4))
-    if ((result = wire({ ...options, ...t })).status === "ok") break;
-  return result.status === "ok" ? { ...result, routes: route(result) } : result;
+  return wireGates(rows, transitioned.map((term) => gateLamps({ term, mask, varCount })), budget);
 }
 
 /**
  * Lamps a wiring builds, pad lamps included; undefined when it has no stacks (not wired).
- * @param {{stacks?: {lamps: unknown[]}[]}} wiring
+ * @param {{status: string, stacks?: {lamps: unknown[]}[]}} wiring
  */
 function lampsOf(wiring) {
   return wiring.stacks?.reduce((sum, s) => sum + s.lamps.length, 0);

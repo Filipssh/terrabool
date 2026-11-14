@@ -179,3 +179,58 @@ test("with don't cares, the XOR pair uses the cheapest term among those the mask
   assert.ok(sameOutsideMask(f1 ^ f2, term, mask, 4), "two gates XOR to the target");
   assert.equal(depth.get(f1) + depth.get(f2), best, "pair is the cheapest");
 });
+
+// --- drawing a picked solution ------------------------------------------------------
+import { gateOptions, SPACER } from "../js/worker/wiring.js";
+import { checkLayout, checkRoutes } from "./wiring-check.js";
+
+/** Asserts a "drawing" reply: an ok wiring of the picks, all gates onto the one output. */
+function checkDrawing(r, picks, expressions) {
+  assert.equal(r.action, "drawing");
+  assert.equal(r.id, 7);
+  assert.deepEqual(r.picks, picks);
+  assert.deepEqual(r.rows, [2 ** expressions.length - 1]);
+  assert.equal(r.wiring.status, "ok");
+  let rebuilt = 0;
+  for (const w of r.wiring.wires) for (const k of w.gates) rebuilt ^= 1 << k;
+  assert.equal(rebuilt, r.rows[0], "the wires XOR every picked gate onto the output");
+  // No two wires that cancel out: each gate is on one wire (there is one output).
+  const onWires = r.wiring.wires.flatMap((w) => w.gates);
+  assert.equal(new Set(onWires).size, onWires.length, JSON.stringify(r.wiring.wires));
+  // A picked expression, or the same with an unwired pad lamp under it.
+  const options = expressions.map((x) => [gateOptions([x]).expressions, gateOptions([x]).padded].flat());
+  if (r.wiring.stacks.length > expressions.length) options.push(SPACER.expressions);
+  checkLayout(r.wiring, options);
+  checkRoutes(r.wiring, r.wiring.routes);
+}
+
+test("draw: a picked single lays out, with a spacer column when one column can't", () => {
+  // ⊕(¬c, ¬ac, ¬cd, acd): its lamps' colours don't nest, so wires must enter from the side.
+  const { results } = send({ action: "search", varCount: 4, maxDepth: 5, term: 0b1110011011001100, mask: 0b1110000000000000 });
+  for (const [i, x] of results.entries()) {
+    const r = send({ action: "draw", id: 7, picks: [i], expressions: [x] });
+    checkDrawing(r, [i], [x]);
+  }
+  const plain = send({ action: "draw", id: 7, picks: [0], expressions: [["ab", 0b110]] });
+  checkDrawing(plain, [0], [["ab", 0b110]]);
+  assert.equal(plain.wiring.stacks.length, 1, "no spacer when the gate's column is enough");
+});
+
+test("draw: a gate takes a pad lamp to lift its stack, not wires that cancel out", () => {
+  // Without the pad under ⊕(ab, ac, bd), its lamps block the input wires; the solver used
+  // to earn the pad with red and green wires from that gate to the output, cancelling out.
+  const { results1, results2 } = send({ action: "search", varCount: 4, maxDepth: 5, term: 0b0110010000011010, mask: 0 });
+  const picks = [results1.findIndex((x) => x[0] === "⊕(ab, ac, bd)"), results2.findIndex((x) => x[0] === "∧(¬a, abc)")];
+  const expressions = [results1[picks[0]], results2[picks[1]]];
+  const r = send({ action: "draw", id: 7, picks, expressions });
+  checkDrawing(r, picks, expressions);
+  assert.equal(r.wiring.wires.length, 1);
+  assert.equal(r.wiring.stacks[0].expression, "⊕(0, ab, ac, bd)");
+});
+
+test("draw: a picked pair of a double result shares the one output", () => {
+  const term = 0b0110100110010110 ^ 0b0000000011111111 ^ 0b1000000000000001;
+  const { results1, results2 } = send({ action: "search", varCount: 4, maxDepth: 5, term, mask: 0 });
+  for (const a of results1.slice(0, 3))
+    for (const b of results2.slice(0, 3)) checkDrawing(send({ action: "draw", id: 7, picks: [1, 2], expressions: [a, b] }), [1, 2], [a, b]);
+});
