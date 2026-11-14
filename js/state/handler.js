@@ -1,3 +1,5 @@
+import { teditSchematic } from "./tedit.js";
+
 // Wire colour i carries input variable i (a, b, c, d); same order as js/worker/wiring.js.
 const WIRE_COLOURS = ["red", "blue", "green", "yellow"];
 // Darker shades for the module picture, readable on its light tiles.
@@ -27,15 +29,19 @@ export function tileStates(stacks, rows) {
 /**
  * Tile picture of a wired module (SVG), drawn with the tile set: input wires entering at
  * the top, lamp stacks (bottom lamp on the gate), the gate row, the decode wires and the
- * output row, each tile on or off as tileStates says.
+ * output row, each tile on or off as tileStates says; then a link to the same tiles as a
+ * TEdit schematic.
  * @param {{wires: {gates: number[], outputs: number[], colour: number}[],
  *   gateOrder: number[], outputOrder: number[],
  *   stacks: {expression: string, lamps: {name: string, colours: number}[]}[],
  *   inputs: number[][][], routes: {rows: number, cells: number[][][]}}} wiring an "ok" wiring
  * @param {number[]} rows the inverse matrix, for the output states
+ * @param {string} name the schematic's file name, without extension
  * @returns {string}
  */
-function moduleSvg({ wires, gateOrder, outputOrder, stacks, inputs, routes }, rows) {
+function moduleSvg({ wires, gateOrder, outputOrder, stacks, inputs, routes }, rows, name) {
+  name = name.replace(/[^\w-]/g, "");
+  name = name ? `TBool_${name}` : "terrabool"; // file and schematic name
   const n = gateOrder.length;
   const size = 64; // the tile set's own size, so its pixels stay square
   const top = Math.max(...gateOrder.map((k) => stacks[k].lamps.length));
@@ -53,7 +59,10 @@ function moduleSvg({ wires, gateOrder, outputOrder, stacks, inputs, routes }, ro
   const state = tileStates(stacks, rows);
   let tiles = "";
   let labels = ""; // drawn last, so wires don't cover them
+  // cells[row][x]: the block on that tile, for the TEdit export; null where only wires run.
+  const cells = colours.map((row) => row.map(() => null));
   const tile = (x, y, image, on, label) => {
+    cells[y][x] = { image, on };
     // noinspection HtmlUnknownAttribute: an SVG <image>, which the HTML inspection doesn't know
     tiles += `<image href="assets/tileset/${image}_${on ? "on" : "off"}.png" x="${x * size}" y="${y * size}" width="${size}" height="${size}"/>`;
     labels += `<text x="${(x + 0.5) * size}" y="${(y + 0.5) * size + 5}">${label}</text>`;
@@ -84,7 +93,9 @@ function moduleSvg({ wires, gateOrder, outputOrder, stacks, inputs, routes }, ro
       }
     }),
   );
-  return `<svg class="module" viewBox="0 0 ${n * size} ${(outY + 1) * size}" width="${n * size}" role="img" aria-label="Module tile layout">${tiles}${lines}${labels}</svg>`;
+  const schematic = btoa(String.fromCharCode(...teditSchematic(name, colours, cells)));
+  return `<svg class="module" viewBox="0 0 ${n * size} ${(outY + 1) * size}" width="${n * size}" role="img" aria-label="Module tile layout">${tiles}${lines}${labels}</svg>` +
+    `<a class="export" download="${name}.TEditSch" href="data:application/octet-stream;base64,${schematic}">Export as TEdit schematic</a>`;
 }
 
 
@@ -93,10 +104,10 @@ function moduleSvg({ wires, gateOrder, outputOrder, stacks, inputs, routes }, ro
  * @param {{status: string}} wiring
  * @param {number[]} rows the inverse matrix, for the output states
  */
-function drawing(wiring, rows) {
+function drawing(wiring, rows, name) {
   if (wiring.status !== "ok") return `<p>This one can't be laid out as a module.</p>`;
   const lamps = /** @type {any} */ (wiring).stacks.reduce((sum, s) => sum + s.lamps.length, 0);
-  return `<p class="cost"><span>${lamps}</span> lamps</p>${moduleSvg(/** @type {any} */ (wiring), rows)}`;
+  return `<p class="cost"><span>${lamps}</span> lamps</p>${moduleSvg(/** @type {any} */ (wiring), rows, name)}`;
 }
 
 const escape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -136,6 +147,8 @@ export default class UIStateHandler {
   static #onDraw;
   /** The pick of each column of a double result. */
   static #pair = [0, 0];
+  /** The term of the shown single results, for their export names: the field may change since. */
+  static #singleTerm = "";
 
   static init({ onSingle, onMulti, onAbort, onNext, onPrev, onTryWiring, onDraw }) {
     this.#onDraw = onDraw;
@@ -229,9 +242,9 @@ export default class UIStateHandler {
    */
   static showDrawing(picks, rows, wiring) {
     if (picks.length === 1) {
-      document.getElementById(`draw_${picks[0]}`).innerHTML = drawing(wiring, rows);
+      document.getElementById(`draw_${picks[0]}`).innerHTML = drawing(wiring, rows, this.#singleTerm);
     } else if (String(picks) === String(this.#pair)) {
-      document.getElementById("draw_pair").innerHTML = drawing(wiring, rows);
+      document.getElementById("draw_pair").innerHTML = drawing(wiring, rows, this.#singleTerm);
     }
   }
 
@@ -261,6 +274,7 @@ export default class UIStateHandler {
   }
 
   static onStartSingleEvent() {
+    this.#singleTerm = this.getSingleTermValue();
     this.#result.innerHTML = "";
     this.#error.style.display = "none";
     this.#a_download.style.display = "none";
@@ -362,10 +376,10 @@ export default class UIStateHandler {
     let steps = `<table><tr><th></th>`;
     for (let k = n; k >= 1; k--) steps += `<th>G${k}</th>`;
     steps += `<th></th></tr>`;
+    const txtMask = mask.toString(2).padStart(16, "0");
+    const bits = (v) => v.toString(2).padStart(16, "0").split('').map((a, idx) => (txtMask[idx] === "1" ? "x" : a)).join('');
     for (let i in rows) {
-      let num = transitioned[i].toString(2).padStart(16, "0");
-      let txtMask = mask.toString(2).padStart(16, "0");
-      num = num.split('').map((a, idx) => (txtMask[idx] === "1" ? "x" : a)).join('');
+      const num = bits(transitioned[i]);
       steps += `<tr><th>O${Number(i) + 1}</th><td>${(rows[i] + 2 ** n)
         .toString(2)
         .substring(1)
@@ -397,7 +411,12 @@ export default class UIStateHandler {
       shown = mixed.length === 0
         ? `<p>Every output is on one wire: no diodes needed.</p>`
         : `<p>${list("O", mixed)} mix${mixed.length === 1 ? "es" : ""} gate signals: one diode each.</p>`;
-      shown += moduleSvg(wiring, rows);
+      // File name: gates, lamps, and the start of each output's truth table (the XOR of the
+      // gates its row reaches), so it doesn't depend on the input fields matching.
+      const lamps = wiring.stacks.reduce((sum, s) => sum + s.lamps.length, 0);
+      // A 2- or 3-variable table is only the last 4 or 8 of the 16 bits.
+      const outputs = rows.map((row) => bits(transitioned.reduce((acc, t, k) => ((row >> k) & 1 ? acc ^ t : acc), 0)).slice(-(2 ** varCount)).slice(0, 6));
+      shown += moduleSvg(wiring, rows, `${n}g_${lamps}l_${outputs.join("-")}`);
     } else if (status === "impossible") {
       shown = `<p>This matrix can't be wired.</p>`;
     } else if (varCount !== undefined) {

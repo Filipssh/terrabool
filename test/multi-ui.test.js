@@ -45,6 +45,30 @@ for (const results of [[], undefined]) {
   });
 }
 
+/**
+ * The first column of a TEdit schematic (js/state/tedit.js), top to bottom: "type:U,V/wires"
+ * ("type/wires" for a block without frame; just the wires on an empty tile).
+ */
+function teditColumn(bytes, height) {
+  let p = 1 + bytes[0] + 4 + 97 + 8; // past the name, version, frame-important bits and size
+  const column = [];
+  while (column.length < height) {
+    const h1 = bytes[p++];
+    const h2 = h1 & 1 ? bytes[p++] : 0;
+    const h3 = h2 & 1 ? bytes[p++] : 0;
+    let tile = "";
+    if (h1 & 2) {
+      const type = bytes[p] | (h1 & 32 ? bytes[p + 1] << 8 : 0);
+      p += h1 & 32 ? 2 : 1;
+      tile = String(type);
+      if (type === 419 || type === 420) (tile += `:${bytes.readInt16LE(p)},${bytes.readInt16LE(p + 2)}`), (p += 4);
+    }
+    const wires = ["R", "B", "G"].filter((_, c) => (h2 >> (c + 1)) & 1).join("") + (h3 & 32 ? "Y" : "");
+    column.push(tile && wires ? `${tile}/${wires}` : tile || wires);
+  }
+  return column;
+}
+
 // --- wiring ------------------------------------------------------------------------
 const wired = {
   complexity: 2,
@@ -84,7 +108,12 @@ test("a wired matrix lists its wires, the tile order, each gate's lamp stack and
   assert.match(html, /O2 mixes gate signals: one diode each/, "O2 is on the green and the yellow wire");
   assert.match(html, /G1 = ab: green on the gate, lamps bottom to top ab/);
   // The picture comes before the folded intermediate steps, which hold the matrix.
-  assert.match(html, /<\/svg><details class="steps"><summary>Intermediate steps<\/summary><table>/);
+  // O1 is G1 (0110), O2 is G1 xor G2 (0110 ^ 1100): 2-variable tables are 4 characters.
+  assert.match(html, /<\/svg><a class="export" download="TBool_2g_2l_0110-1010.TEditSch" href="data:application\/octet-stream;base64,[\w+/=]+">Export as TEdit schematic<\/a><details class="steps"><summary>Intermediate steps<\/summary><table>/);
+  // The export holds the picture's tiles. Column 0 is G2 ("a"): top edge, lamp, gate, 5 routing rows, O1.
+  const bytes = Buffer.from(html.match(/base64,([\w+/=]+)/)[1], "base64");
+  // Red input to the off lamp, the off XOR gate on yellow (to O2, turning right), O1 off on green.
+  assert.deepEqual(teditColumn(bytes, 9), ["R", "419:0,0/R", "420:0,72/Y", "Y", "Y", "Y", "", "G", "260/G"]);
   const svg = html.match(/<svg[^>]*>.*<\/svg>/s)?.[0];
   assert.ok(svg, "the module is drawn");
   // Top edge, one lamp row, gate row, 5 routing rows (yellow turns right), output row: 9 rows of 64px.

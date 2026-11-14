@@ -97,8 +97,10 @@ test("a drawn single shows its lamp count and module", () => {
     inputs: [[[1, 0], [1, 1]], [[0, 1], [0, 0], [1, 0]], [], []],
     routes: { rows: 3, cells: [[[1, 1], [1, 2], [0, 3], [1, 3]]] },
   };
+  el("term").value = "1111"; // edited after the search: the export keeps the searched term
   reply({ action: "drawing", id, picks: [0], rows: [1], wiring });
   const html = el("draw_0").innerHTML;
+  assert.match(html, /download="TBool_0110\.TEditSch"/);
   assert.match(html, /<span>1<\/span> lamps/);
   assert.match(html, /<svg class="module" viewBox="0 0 128 448"/);
   assert.equal(html.match(/gate_xor/g).length, 1, "the spacer has no gate tile");

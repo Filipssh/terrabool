@@ -335,6 +335,10 @@ mark.negation{
     height: auto;
     margin-top: 8px;
 }
+.export{
+    display: inline-block;
+    margin-top: 8px;
+}
 .module image{
     image-rendering: pixelated;
 }
