@@ -96,9 +96,13 @@ function moduleSvg({ wires, gateOrder, outputOrder, stacks, inputs, routes }, ro
   const schematic = btoa(String.fromCharCode(...teditSchematic(name, colours, cells)));
   return `<svg class="module" viewBox="0 0 ${n * size} ${(outY + 1) * size}" width="${n * size}" role="img" aria-label="Module tile layout">${tiles}${lines}${labels}</svg>` +
     `<a class="export" download="${name}.TEditSch" href="data:application/octet-stream;base64,${schematic}">⬇ Download TEdit schematic</a>` +
-    `<p class="hint">In TEdit: Schematics → Import, then paste it into your world.</p>`;
+    `<p class="hint">In TEdit: Clipboard tab → Load, then paste it into your world. ` +
+    `<button type="button" class="link" popovertarget="tedit_help">Show me</button></p>`;
 }
 
+
+/** @param {number} n */
+const lampBadge = (n) => `<span class="badge"><span>${n}</span> lamp${n === 1 ? "" : "s"}</span>`;
 
 /**
  * Lamp count and module picture of a wiring, or why there is none.
@@ -108,7 +112,7 @@ function moduleSvg({ wires, gateOrder, outputOrder, stacks, inputs, routes }, ro
 function drawing(wiring, rows, name) {
   if (wiring.status !== "ok") return `<p class="notice">This one can't be laid out as a module.</p>`;
   const lamps = /** @type {any} */ (wiring).stacks.reduce((sum, s) => sum + s.lamps.length, 0);
-  return `<p class="badges"><span class="badge"><span>${lamps}</span> lamps</span></p>${moduleSvg(/** @type {any} */ (wiring), rows, name)}`;
+  return `<p class="badges">${lampBadge(lamps)}</p>${moduleSvg(/** @type {any} */ (wiring), rows, name)}`;
 }
 
 const escape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -176,8 +180,13 @@ export default class UIStateHandler {
 
     // Picking from a column redraws the picked solution (or pair).
     this.#result.addEventListener("change", function (e) {
-      const radio = /** @type {HTMLInputElement} */ (e.target);
-      UIStateHandler.#pair[radio.name === "col1" ? 1 : 0] = Number(radio.value);
+      const { name, value } = /** @type {HTMLInputElement} */ (e.target);
+      // Each column is both a radio list and a <select> (phones): keep the other one in step.
+      for (const x of this.querySelectorAll(`[name="${name}"]`)) {
+        if (x.tagName === "SELECT") x.value = value;
+        else x.checked = x.value === value;
+      }
+      UIStateHandler.#pair[name === "col1" ? 1 : 0] = Number(value);
       UIStateHandler.#draw();
     });
 
@@ -341,13 +350,19 @@ export default class UIStateHandler {
     this.#showPicks("No single gate makes this function. Pick one gate from each column: their outputs share one wire.", [terms1, terms2]);
   }
 
-  /** One radio list per column, the first of each picked and drawn. */
+  /** One radio list per column (a select on phones), the first of each picked and drawn. */
   static #showPicks(head, columns) {
+    const title = (c) => (columns.length === 1 ? "Circuit" : `Gate ${c + 1}`);
     const column = (terms, c) =>
-      `<fieldset><legend>${columns.length === 1 ? "Circuits" : `Gate ${c + 1}`}</legend>${terms
+      `<fieldset><legend>${columns.length === 1 ? "Circuits" : title(c)}</legend>${terms
         .map((a, i) => `<label><input type="radio" name="col${c}" value="${i}"${i === 0 ? " checked" : ""}> <code>${escape(a[0])}</code></label>`)
         .join("")}</fieldset>`;
+    const select = (terms, c) =>
+      `<label>${title(c)} <select name="col${c}">${terms
+        .map((a, i) => `<option value="${i}">${escape(a[0])}</option>`)
+        .join("")}</select></label>`;
     this.#result.innerHTML = `<p class="result_title">${head}</p><div class="picker cols${columns.length}">` +
+      `<div class="selects">${columns.map(select).join("")}</div>` +
       `<div class="lists">${columns.map(column).join("")}</div><div class="drawing panel" id="draw_pair"></div></div>`;
     this.#pair = columns.map(() => 0);
     this.#draw();
@@ -405,7 +420,7 @@ export default class UIStateHandler {
 
     // A wiring without lamp stacks is from before input wires were checked: wire it again.
     const status = wiring?.status === "ok" && !wiring.routes ? "unverified" : (wiring?.status ?? "unverified");
-    let badges = `<span class="badge"><span>${complexity}</span> lamps</span>`;
+    let badges = lampBadge(complexity);
     let shown;
     let details = "";
     if (status === "ok") {

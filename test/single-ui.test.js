@@ -60,6 +60,7 @@ test("single result is a list to pick from, the first one drawn, and offered as 
   assert.equal(el("loader").style.display, "none");
   const html = el("result").innerHTML;
   assert.match(html, /name="col0" value="0" checked> <code>ab<\/code>.*name="col0" value="1"> <code>¬⊕\(a, &lt;b\)<\/code>.*id="draw_pair"/s, "expressions are escaped");
+  assert.match(html, /<select name="col0"><option value="0">ab<\/option><option value="1">¬⊕\(a, &lt;b\)<\/option><\/select>/, "the same list as a select, for phones");
   id = worker.sent[0].id;
   assert.deepEqual(worker.sent, [{ action: "draw", id, picks: [0], expressions: [["ab", 7]] }]);
   assert.match(el("draw_pair").innerHTML, /loader/);
@@ -98,7 +99,7 @@ test("a drawn single shows its lamp count and module", () => {
   reply({ action: "drawing", id, picks: [0], rows: [1], wiring });
   const html = el("draw_pair").innerHTML;
   assert.match(html, /download="TBool_0110\.TEditSch"/);
-  assert.match(html, /<span>1<\/span> lamps/);
+  assert.match(html, /<span>1<\/span> lamp<\/span>/, "singular for one lamp");
   assert.match(html, /<svg class="module" viewBox="0 0 128 448"/);
   assert.equal(html.match(/gate_xor/g).length, 1, "the spacer has no gate tile");
   assert.doesNotMatch(html, />G2</);

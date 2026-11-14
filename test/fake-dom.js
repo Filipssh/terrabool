@@ -20,6 +20,7 @@ export class El {
   };
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
   setAttribute(k, v) { this.attrs[k] = v; }
+  querySelectorAll() { return []; }
   /**
    * @param {string} type
    * @param {any} [target] the event target, this element by default

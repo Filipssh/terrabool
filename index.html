@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
-    <link rel="stylesheet" href="style.css?v=11">
+    <link rel="stylesheet" href="style.css?v=16">
     <link rel="modulepreload" href="js/worker/worker.js">
     <link rel="modulepreload" href="js/worker/transmatrix.js">
     <title>TerraBool - A Terraria boolean function minifier</title>
@@ -15,7 +15,7 @@
     <header>
         <div class="brand">
             <h1>TerraBool</h1>
-            <p role="doc-subtitle">Turn a truth table into the smallest Terraria logic-gate module</p>
+            <p role="doc-subtitle">Turn a truth table into a compact Terraria logic-gate module</p>
         </div>
     </header>
     <main id="minifier">
@@ -114,6 +114,16 @@
 
         <section id="tab_guide" class="tab">
             <h2>How to use</h2>
+            <h3>Why</h3>
+            <p>Terraria wires don't power a device, they toggle it. Two wires joined together act like an XOR gate
+                for free, so a circuit built around XOR needs far fewer gates and lamps than one built from a
+                textbook formula. TerraBool searches for those circuits.</p>
+
+            <h3>Entering a truth table</h3>
+            <p>Type the output column <b>f</b> of the truth table as one string, <b>bottom row first</b>. 2, 3 or 4
+                inputs need 4, 8 or 16 characters; the field gets a ✓ at a valid length. Use <i>0</i>, <i>1</i>,
+                or <i>x</i> (any lower case letter) for a don't care. The table here is entered as
+                <i>xxx0011011001100</i>.</p>
             <div id="table_img">
                 <table>
                     <tr><th>A</th><th>B</th><th>C</th><th>D</th><th>f</th></tr>
@@ -136,17 +146,6 @@
                 </table>
                 <img id="example_img" src="img/example.gif" alt="ingame example of the function">
             </div>
-
-            <h3>Why</h3>
-            <p>Terraria wires don't power a device, they toggle it. Two wires joined together act like an XOR gate
-                for free, so a circuit built around XOR needs far fewer gates and lamps than one built from a
-                textbook formula. TerraBool searches for those circuits.</p>
-
-            <h3>Entering a truth table</h3>
-            <p>Type the output column <b>f</b> of the truth table as one string, <b>bottom row first</b>. 2, 3 or 4
-                inputs need 4, 8 or 16 characters; the field gets a ✓ at a valid length. Use <i>0</i>, <i>1</i>,
-                or <i>x</i> (any lower case letter) for a don't care. The table here is entered as
-                <i>xxx0011011001100</i>.</p>
 
             <h3>Single: one output</h3>
             <p>Every cheapest expression is listed; pick one to see its module drawn tile by tile beside the
@@ -193,6 +192,12 @@
             </ul>
         </section>
     </main>
+    <div id="tedit_help" class="panel" popover>
+        <p>In TEdit, open the <b>Clipboard</b> tab on the right, press <b>Load</b> and pick the downloaded
+            <i>.TEditSch</i> file. Then click in your world to paste it.</p>
+        <img src="img/tedit_import.png" alt="TEdit's Clipboard tab with its Load button" width="675" height="414">
+        <button type="button" class="primary" popovertarget="tedit_help" popovertargetaction="hide">Got it</button>
+    </div>
     <script type="module">
         import {single, multi, startTest} from './js/main.js';
 

@@ -195,7 +195,9 @@ function draw(picks) {
 }
 
 let index = 0;
-let matrices = JSON.parse(localStorage.getItem("matrices"));
+// Keeps multi results in localStorage between visits. Off for now.
+const KEEP_RESULTS = false;
+let matrices = KEEP_RESULTS ? JSON.parse(localStorage.getItem("matrices")) : null;
 // Older versions could store an empty list, which has nothing to display.
 if (matrices?.length === 0) matrices = null;
 // Jobs sent to the transmatrix worker and not answered yet. It answers them in order.
@@ -222,13 +224,13 @@ function transmatrix_onmessage(e) {
       jobDone();
 
       if (e.data.results?.length > 0) {
-        localStorage.setItem("matrices", JSON.stringify(e.data.results));
+        if (KEEP_RESULTS) localStorage.setItem("matrices", JSON.stringify(e.data.results));
         matrices = e.data.results;
         index = 0;
         UI.setNextPrevState(index, matrices);
         show();
       } else {
-        localStorage.removeItem("matrices");
+        if (KEEP_RESULTS) localStorage.removeItem("matrices");
         matrices = null;
         index = 0;
         UI.setNextPrevState(index, matrices);
@@ -245,7 +247,7 @@ function transmatrix_onmessage(e) {
       if (target < 0) break; // the results it was for are gone
       matrices[target].wiring = e.data.wiring;
       if (e.data.complexity !== undefined) matrices[target].complexity = e.data.complexity;
-      localStorage.setItem("matrices", JSON.stringify(matrices));
+      if (KEEP_RESULTS) localStorage.setItem("matrices", JSON.stringify(matrices));
       // While a new search runs, its area stays cleared.
       if (target === index && pending === 0) show();
       break;

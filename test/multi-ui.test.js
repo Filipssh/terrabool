@@ -1,32 +1,32 @@
 // Tests for how js/main.js shows multi-output results from the transmatrix worker,
-// using the fake DOM. Starts with the empty list older versions saved, which used
-// to crash the page on load.
+// using the fake DOM. Starts with results an older version saved, which are ignored.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installFakeDom } from "./fake-dom.js";
 import { route } from "../js/worker/wiring.js";
 
-const { el, storage, workers } = installFakeDom({ matrices: "[]" });
-await import("../js/main.js"); // would throw here if the stored [] were displayed
+const saved = '[{"complexity":3,"rows":[1,2],"transitioned":[6,12],"mask":0}]';
+const { el, storage, workers } = installFakeDom({ matrices: saved });
+await import("../js/main.js");
 const transmatrix = workers.find((w) => w.url.endsWith("worker/transmatrix.js"));
 const reply = (data) => transmatrix.onmessage({ data });
 
 const m1 = { complexity: 3, rows: [1, 2], transitioned: [0b0110, 0b1100], mask: 0 };
 const m2 = { complexity: 4, rows: [3, 2], transitioned: [0b1010, 0b1100], mask: 0 };
 
-test("a stored empty list from an older version loads with the results hidden", () => {
+test("saved results aren't loaded: the page opens with the results hidden", () => {
   assert.equal(el("result_multi").style.display, "none");
   assert.equal(el("displayed_matrix").innerHTML, "");
   assert.equal(el("multi_empty").style.display, "", "the first-visit help shows instead");
 });
 
-test("matrices are shown, saved, and the first one has prev disabled", () => {
+test("matrices are shown, not saved, and the first one has prev disabled", () => {
   reply({ action: "matrices", results: [m1, m2] });
   assert.equal(el("result_multi").style.display, "grid");
   assert.equal(el("multi_empty").style.display, "none");
   assert.equal(el("result_multi_pos").innerText, "1 / 2");
   assert.match(el("displayed_matrix").innerHTML, /<span>3<\/span>/);
-  assert.equal(storage.get("matrices"), JSON.stringify([m1, m2]));
+  assert.equal(storage.get("matrices"), saved, "localStorage is untouched");
   assert.equal(el("result_multi_prev").disabled, true);
   assert.equal(el("result_multi_next").disabled, false);
 
@@ -43,7 +43,6 @@ for (const results of [[], undefined]) {
     assert.equal(el("error_multi").style.display, "block");
     assert.equal(el("error_multi").innerHTML, "No solution found for these outputs");
     assert.equal(el("result_multi").style.display, "none", "old prev/next are hidden");
-    assert.equal(storage.has("matrices"), false, "nothing is saved for the next page load");
   });
 }
 
@@ -148,18 +147,15 @@ test("an unverified matrix can be wired again, with Abort available", () => {
   reply({ action: "wiring", index: 1, wiring: wired.wiring, complexity: 6 });
   assert.equal(el("loader_multi").style.display, "none");
   assert.match(el("displayed_matrix").innerHTML, /<span>6<\/span>.*Gates left to right/s);
-  assert.equal(JSON.parse(storage.get("matrices"))[1].wiring.status, "ok", "saved for the next page load");
-  assert.equal(JSON.parse(storage.get("matrices"))[1].complexity, 6);
 });
 
-test("a retry that proves the matrix impossible says so, and replies for hidden matrices only save", () => {
+test("a retry that proves the matrix impossible says so, and replies for hidden matrices aren't drawn", () => {
   results([wired, unverified]);
   el("result_multi_next").fire("click");
   el("result_multi_wire").fire("click");
   el("result_multi_prev").fire("click"); // look at another matrix while it runs
   reply({ action: "wiring", index: 1, wiring: { status: "impossible" } });
   assert.match(el("displayed_matrix").innerHTML, /Gates left to right/, "matrix 0 is still shown");
-  assert.equal(JSON.parse(storage.get("matrices"))[1].wiring.status, "impossible");
   el("result_multi_next").fire("click");
   assert.match(el("displayed_matrix").innerHTML, /can't be wired/);
   assert.equal(el("result_multi_wire").style.display, "none");
@@ -211,7 +207,6 @@ test("a new search hides try wiring, and a late retry reply never lands on the n
   results([unverified]);
   assert.equal(el("loader_multi").style.display, "none");
   reply({ action: "wiring", index: 0, wiring: wired.wiring });
-  assert.equal(JSON.parse(storage.get("matrices"))[0].wiring.status, "unverified");
   assert.match(el("displayed_matrix").innerHTML, /Wiring not verified/);
 });
 
