@@ -135,6 +135,17 @@ header{
 #tabbar .help_tab{
     padding: 3px 18px;
 }
+.repo_link{
+    display: flex;
+    color: #3d5fa8;
+}
+.repo_link:hover{
+    color: #fff;
+}
+.repo_link:focus-visible{
+    outline: 3px solid var(--sky);
+    border-radius: 50%;
+}
 .tab{
     display: none;
 }
