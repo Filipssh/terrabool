@@ -330,7 +330,7 @@ export default class UIStateHandler {
   /** @param {string} count "wired/invertible/tested" from the transmatrix worker */
   static setMultiProgress(count) {
     const [wired, invertible, tested] = count.split("/");
-    this.#multi_progress.innerText = `${wired} found · ${invertible} invertible · ${tested} tested`;
+    this.#multi_progress.innerText = `${wired} verified · ${invertible} marked for validation · ${tested} checked`;
   }
 
   static setDownload(encodedUri) {
